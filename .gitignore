@@ -1,1 +1,1 @@
-node_modules/\ndist/\n.env\nstore/\n*.db
+**/node_modules/\ndist/\n.env\nstore/\n*.db
