@@ -9,9 +9,12 @@
  * through the gateway's broadcast API.
  */
 
+import { readEnvFile } from '../env.js';
 import { logger } from '../logger.js';
 import { Channel, NewMessage, OnChatMetadata, OnInboundMessage } from '../types.js';
 import { RegisteredGroup } from '../types.js';
+
+const envVars = readEnvFile(['AMS_GATEWAY_URL', 'AMS_URL', 'AMS_AGENT_TOKEN', 'GATEWAY_API_KEY', 'GATEWAY_POLL_INTERVAL_MS']);
 
 interface GatewayConfig {
   gatewayUrl: string;
@@ -58,9 +61,9 @@ export class GatewayChannel implements Channel {
   constructor(callbacks: ChannelCallbacks) {
     this.callbacks = callbacks;
     this.config = {
-      gatewayUrl: process.env.AMS_GATEWAY_URL || process.env.AMS_URL?.replace(/:3001$/, ':18800') || 'http://localhost:18800',
-      apiKey: process.env.AMS_AGENT_TOKEN || process.env.GATEWAY_API_KEY || '',
-      pollIntervalMs: parseInt(process.env.GATEWAY_POLL_INTERVAL_MS || '2000', 10),
+      gatewayUrl: process.env.AMS_GATEWAY_URL || envVars.AMS_GATEWAY_URL || (process.env.AMS_URL || envVars.AMS_URL || '').replace(/:3001$/, ':18800') || 'http://localhost:18800',
+      apiKey: process.env.AMS_AGENT_TOKEN || envVars.AMS_AGENT_TOKEN || process.env.GATEWAY_API_KEY || envVars.GATEWAY_API_KEY || '',
+      pollIntervalMs: parseInt(process.env.GATEWAY_POLL_INTERVAL_MS || envVars.GATEWAY_POLL_INTERVAL_MS || '2000', 10),
     };
   }
 
@@ -69,7 +72,7 @@ export class GatewayChannel implements Channel {
 
     // Verify gateway is reachable
     try {
-      const response = await this.fetchGateway('/health');
+      const response = await this.fetchGateway('/gateway/health');
       if (response.ok) {
         const health = await response.json() as { status: string; enabled_channels?: string[] };
         logger.info(

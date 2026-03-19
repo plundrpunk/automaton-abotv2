@@ -263,6 +263,25 @@ export class AMSClient {
     }
   }
 
+  async sendDashboardResponse(content: string): Promise<void> {
+    try {
+      await this.fetch(
+        `/api/fleet/agents/${encodeURIComponent(this.config.agentId)}/messages`,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            content,
+            type: 'response',
+            sender: 'agent',
+            recipient: 'dashboard',
+          }),
+        },
+      );
+    } catch (err) {
+      logger.error({ err }, 'Failed to send dashboard response');
+    }
+  }
+
   async pollMessages(): Promise<AgentMessage[]> {
     try {
       const response = await this.fetch(

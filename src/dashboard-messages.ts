@@ -1,4 +1,4 @@
-import { AgentMessage } from './ams-client.js';
+import { AgentMessage, getAMSClient } from './ams-client.js';
 import { ASSISTANT_NAME } from './config.js';
 import { ContainerOutput } from './container-runner.js';
 import { logger } from './logger.js';
@@ -38,6 +38,12 @@ export function dispatchDashboardMessages(
         const raw = typeof result.result === 'string' ? result.result : JSON.stringify(result.result);
         const text = raw.replace(/<internal>[\s\S]*?<\/internal>/g, '').trim();
         logger.info({ content: text.slice(0, 200) }, 'Dashboard agent response');
+
+        // Send response back to AMS so the dashboard can display it
+        const client = getAMSClient();
+        if (client && text) {
+          await client.sendDashboardResponse(text);
+        }
       }
     }).catch((err) => logger.error({ err }, 'Dashboard agent error'));
   }

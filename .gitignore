@@ -1,1 +1,9 @@
-**/node_modules/\ndist/\n.env\nstore/\n*.db
+**/node_modules/
+dist/
+.env
+store/
+data/
+groups/
+logs/
+*.db
+*.log

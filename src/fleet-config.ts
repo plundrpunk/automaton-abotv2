@@ -3,7 +3,24 @@
  * Handles AMS Fleet mode settings
  */
 
+import { readEnvFile } from './env.js';
 import { logger } from './logger.js';
+
+const envConfig = readEnvFile([
+  'AMS_URL',
+  'AMS_FLEET_ENABLED',
+  'AMS_AGENT_ID',
+  'AMS_TENANT_ID',
+  'AMS_AGENT_TOKEN',
+  'AMS_HEARTBEAT_INTERVAL_MS',
+  'AMS_CONTEXT_THRESHOLD_PERCENT',
+  'AMS_INSTANCE_ID',
+  'AMS_GATEWAY_URL',
+]);
+
+function env(key: string): string {
+  return process.env[key] || envConfig[key] || '';
+}
 
 export interface FleetConfig {
   enabled: boolean;
@@ -19,16 +36,16 @@ export interface FleetConfig {
  * Load Fleet configuration from environment
  */
 export function loadFleetConfig(): FleetConfig {
-  const enabled = process.env.AMS_FLEET_ENABLED === 'true' || !!process.env.AMS_URL;
+  const enabled = env('AMS_FLEET_ENABLED') === 'true' || !!env('AMS_URL');
 
   const config: FleetConfig = {
     enabled,
-    amsEndpoint: process.env.AMS_URL || '',
-    agentId: process.env.AMS_AGENT_ID || process.env.AGENT_ID || '',
-    tenantId: process.env.AMS_TENANT_ID || process.env.TENANT_ID || '',
-    agentToken: process.env.AMS_AGENT_TOKEN || process.env.AGENT_TOKEN || '',
-    heartbeatIntervalMs: parseInt(process.env.AMS_HEARTBEAT_INTERVAL_MS || '30000', 10),
-    contextThresholdPercent: parseInt(process.env.AMS_CONTEXT_THRESHOLD_PERCENT || '85', 10),
+    amsEndpoint: env('AMS_URL'),
+    agentId: env('AMS_AGENT_ID') || env('AGENT_ID'),
+    tenantId: env('AMS_TENANT_ID') || env('TENANT_ID'),
+    agentToken: env('AMS_AGENT_TOKEN') || env('AGENT_TOKEN'),
+    heartbeatIntervalMs: parseInt(env('AMS_HEARTBEAT_INTERVAL_MS') || '30000', 10),
+    contextThresholdPercent: parseInt(env('AMS_CONTEXT_THRESHOLD_PERCENT') || '85', 10),
   };
 
   if (enabled) {

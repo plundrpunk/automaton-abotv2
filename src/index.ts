@@ -3,6 +3,10 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 
+import { readEnvFile } from './env.js';
+
+const envVars = readEnvFile(['AMS_INSTANCE_ID', 'HEALTH_PORT']);
+
 import {
   ASSISTANT_NAME,
   DATA_DIR,
@@ -465,7 +469,7 @@ async function main(): Promise<void> {
   // Initialize AMS Fleet mode
   if (isFleetMode()) {
     const fleetConfig = getFleetConfig();
-    const instanceId = process.env.AMS_INSTANCE_ID || process.env.HOSTNAME || os.hostname();
+    const instanceId = process.env.AMS_INSTANCE_ID || envVars.AMS_INSTANCE_ID || process.env.HOSTNAME || os.hostname();
     const amsClient = initAMSClient({
       endpoint: fleetConfig.amsEndpoint,
       agentId: fleetConfig.agentId,
@@ -485,7 +489,7 @@ async function main(): Promise<void> {
     startEmbeddedWarden(10000);
     await performBirthRitual();
 
-    const healthPort = parseInt(process.env.HEALTH_PORT || '8080', 10);
+    const healthPort = parseInt(process.env.HEALTH_PORT || envVars.HEALTH_PORT || '8080', 10);
     startHealthServer(healthPort);
 
     logger.info('AMS Fleet mode initialized — phoning home to mothership');

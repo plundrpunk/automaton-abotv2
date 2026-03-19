@@ -206,11 +206,18 @@ function buildContainerArgs(mounts: VolumeMount[], containerName: string): strin
     args.push('-e', 'HOME=/home/node');
   }
 
-  // Expose AMS MCP endpoint to containers
-  const amsUrl = process.env.AMS_URL || 'http://host.docker.internal:3001';
-  const amsMcpEndpoint = process.env.AMS_MCP_ENDPOINT || `${amsUrl.replace(/:3001$/, '')}:3002/sse`;
-  args.push('-e', `AMS_URL=${amsUrl}`);
-  args.push('-e', `AMS_MCP_ENDPOINT=${amsMcpEndpoint}`);
+  // Docker networking: join the AMS network so containers can reach AMS services
+  const amsNetwork = process.env.AMS_DOCKER_NETWORK || 'ams_ams_network';
+  args.push('--network', amsNetwork);
+  // Linux Docker host access (host.docker.internal doesn't exist by default on Linux)
+  args.push('--add-host=host.docker.internal:host-gateway');
+
+  // Inside containers, use Docker service names to reach AMS stack.
+  // The host daemon uses localhost, but containers need Docker DNS names.
+  const containerAmsUrl = process.env.AMS_CONTAINER_URL || 'http://ams-server:3001';
+  const containerMcpEndpoint = process.env.AMS_CONTAINER_MCP_ENDPOINT || 'http://ams-mcp-sse:3002/sse';
+  args.push('-e', `AMS_URL=${containerAmsUrl}`);
+  args.push('-e', `AMS_MCP_ENDPOINT=${containerMcpEndpoint}`);
 
   if (process.env.AMS_AGENT_ID) {
     args.push('-e', `AMS_AGENT_ID=${process.env.AMS_AGENT_ID}`);
