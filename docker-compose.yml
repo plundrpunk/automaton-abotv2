@@ -1,0 +1,37 @@
+# AutomatanAbot v2 — Docker Compose
+# Requires an AMS instance for persistent memory and communications gateway.
+
+services:
+  abot:
+    build:
+      context: .
+      dockerfile: container/Dockerfile.abot
+    container_name: automatan-abot
+    restart: unless-stopped
+    volumes:
+      - ./store:/app/store
+      - ./data:/app/data
+      - ./groups:/app/groups
+      - ./container/agent-runner/src:/app/src:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - ASSISTANT_NAME=${ASSISTANT_NAME:-Abot}
+      - AMS_URL=${AMS_URL}
+      - AMS_AGENT_ID=${AMS_AGENT_ID}
+      - AMS_TENANT_ID=${AMS_TENANT_ID}
+      - AMS_AGENT_TOKEN=${AMS_AGENT_TOKEN}
+      - AMS_MCP_ENDPOINT=${AMS_MCP_ENDPOINT}
+      - AMS_GATEWAY_URL=${AMS_GATEWAY_URL}
+      - AMS_TOOL_MODE=${AMS_TOOL_MODE:-full}
+      - CONTAINER_IMAGE=${CONTAINER_IMAGE:-automatan-agent:latest}
+      - MAX_CONCURRENT_CONTAINERS=${MAX_CONCURRENT_CONTAINERS:-5}
+      - IDLE_TIMEOUT=${IDLE_TIMEOUT:-1800000}
+      - HEALTH_PORT=8080
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    ports:
+      - "${ABOT_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
