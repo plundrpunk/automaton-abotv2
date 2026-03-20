@@ -24,6 +24,8 @@ Automaton Abot is a daemon that orchestrates persistent AI agent containers. Eac
 
 This is the **body**. The brain lives in [AMS](https://automaton-memory.com).
 
+![Abot Architecture Blueprint](docs/abot-blueprint.png)
+
 ```
 ┌─────────────────────────────────────────────────────────┐
 │                     Channels                            │
