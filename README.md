@@ -1,10 +1,10 @@
-# AutomatanAbot v2
+# AutomatonAbot v2
 
 Open-source AI agent orchestrator with persistent memory, container pooling, and multi-channel messaging.
 
-## What is AutomatanAbot?
+## What is AutomatonAbot?
 
-AutomatanAbot is a daemon that manages persistent Claude Code agent containers. Each agent runs in an isolated Docker container with its own session context, tools, and memory. Agents communicate with users through the AMS Communications Gateway, which supports Telegram, Discord, Slack, and WhatsApp.
+AutomatonAbot is a daemon that manages persistent Claude Code agent containers. Each agent runs in an isolated Docker container with its own session context, tools, and memory. Agents communicate with users through the AMS Communications Gateway, which supports Telegram, Discord, Slack, and WhatsApp.
 
 ## Architecture
 
@@ -13,7 +13,7 @@ Channels (Telegram/Discord/Slack/WhatsApp)
     ↓
 AMS Communications Gateway (port 18800)
     ↓
-AutomatanAbot Host Daemon
+AutomatonAbot Host Daemon
     ↓
 Docker Container Pool
     ├── Agent 1 (Claude Code + MCP tools)
@@ -43,8 +43,8 @@ AMS (Persistent Memory + Fleet Management)
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/automatan/automatan-abotv2.git
-   cd automatan-abotv2
+   git clone https://github.com/automaton/automaton-abotv2.git
+   cd automaton-abotv2
    ```
 
 2. Install dependencies:
@@ -88,7 +88,7 @@ See `.env.example` for all available configuration options.
 | `ASSISTANT_NAME` | `Abot` | Agent trigger name |
 | `MAX_CONCURRENT_CONTAINERS` | `5` | Max simultaneous agent containers |
 | `IDLE_TIMEOUT` | `1800000` | Container idle timeout (ms) |
-| `CONTAINER_IMAGE` | `automatan-agent:latest` | Docker image for agents |
+| `CONTAINER_IMAGE` | `automaton-agent:latest` | Docker image for agents |
 | `LOG_LEVEL` | `info` | Logging level |
 
 ## Development

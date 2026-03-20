@@ -1,5 +1,5 @@
 /**
- * Container Runner for AutomatanAbot
+ * Container Runner for AutomatonAbot
  * Spawns agent execution in Docker containers and handles IPC
  */
 import { ChildProcess, exec, spawn } from 'child_process';

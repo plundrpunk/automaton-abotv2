@@ -1,10 +1,10 @@
 /**
- * Mount Security Module for AutomatanAbot
+ * Mount Security Module for AutomatonAbot
  *
  * Validates additional mounts against an allowlist stored OUTSIDE the project root.
  * This prevents container agents from modifying security configuration.
  *
- * Allowlist location: ~/.config/automatan/mount-allowlist.json
+ * Allowlist location: ~/.config/automaton/mount-allowlist.json
  */
 import fs from 'fs';
 import path from 'path';

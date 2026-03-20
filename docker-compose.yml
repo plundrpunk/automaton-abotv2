@@ -1,4 +1,4 @@
-# AutomatanAbot v2 — Docker Compose
+# AutomatonAbot v2 — Docker Compose
 # Requires an AMS instance for persistent memory and communications gateway.
 
 services:
@@ -6,7 +6,7 @@ services:
     build:
       context: .
       dockerfile: container/Dockerfile.abot
-    container_name: automatan-abot
+    container_name: automaton-abot
     restart: unless-stopped
     volumes:
       - ./store:/app/store
@@ -23,7 +23,7 @@ services:
       - AMS_MCP_ENDPOINT=${AMS_MCP_ENDPOINT}
       - AMS_GATEWAY_URL=${AMS_GATEWAY_URL}
       - AMS_TOOL_MODE=${AMS_TOOL_MODE:-full}
-      - CONTAINER_IMAGE=${CONTAINER_IMAGE:-automatan-agent:latest}
+      - CONTAINER_IMAGE=${CONTAINER_IMAGE:-automaton-agent:latest}
       - MAX_CONCURRENT_CONTAINERS=${MAX_CONCURRENT_CONTAINERS:-5}
       - IDLE_TIMEOUT=${IDLE_TIMEOUT:-1800000}
       - HEALTH_PORT=8080

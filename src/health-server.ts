@@ -1,5 +1,5 @@
 /**
- * Simple Health Server for AutomatanAbot
+ * Simple Health Server for AutomatonAbot
  * Provides /health endpoint for container health checks
  */
 

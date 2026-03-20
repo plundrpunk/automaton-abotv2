@@ -1,5 +1,5 @@
 /**
- * AMS Client for AutomatanAbot Fleet
+ * AMS Client for AutomatonAbot Fleet
  * Handles communication with AMS mothership
  */
 

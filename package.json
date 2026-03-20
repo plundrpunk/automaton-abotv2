@@ -1,5 +1,5 @@
 {
-  "name": "automatan-abotv2",
+  "name": "automaton-abotv2",
   "version": "2.0.0",
   "description": "Open-source AI agent orchestrator with persistent memory, container pooling, and multi-channel messaging via AMS.",
   "type": "module",
@@ -13,7 +13,7 @@
     "format:check": "prettier --check \"src/**/*.ts\"",
     "test": "vitest run",
     "test:watch": "vitest",
-    "docker:build": "docker build -t automatan-agent:latest -f container/Dockerfile.abot container/"
+    "docker:build": "docker build -t automaton-agent:latest -f container/Dockerfile.abot container/"
   },
   "dependencies": {
     "better-sqlite3": "^11.8.1",
@@ -38,6 +38,6 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/automatan/automatan-abotv2"
+    "url": "https://github.com/automaton/automaton-abotv2"
   }
 }

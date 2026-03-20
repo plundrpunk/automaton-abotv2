@@ -1,5 +1,5 @@
 /**
- * AutomatanAbot Agent Runner
+ * AutomatonAbot Agent Runner
  * Runs inside a container, receives config via stdin, outputs result to stdout
  *
  * Input protocol:

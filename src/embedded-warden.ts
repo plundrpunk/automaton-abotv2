@@ -1,5 +1,5 @@
 /**
- * Embedded Warden for AutomatanAbot
+ * Embedded Warden for AutomatonAbot
  * Monitors context usage and triggers death rituals
  */
 

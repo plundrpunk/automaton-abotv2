@@ -314,7 +314,7 @@ async function startMessageLoop(): Promise<void> {
   }
   messageLoopRunning = true;
 
-  logger.info(`AutomatanAbot running (trigger: @${ASSISTANT_NAME})`);
+  logger.info(`AutomatonAbot running (trigger: @${ASSISTANT_NAME})`);
 
   while (true) {
     try {
@@ -422,7 +422,7 @@ function ensureDockerReady(): void {
       '║                                                                ║',
     );
     console.error(
-      '║  AutomatanAbot requires Docker to run agent containers.       ║',
+      '║  AutomatonAbot requires Docker to run agent containers.       ║',
     );
     console.error(
       '║  Please start Docker and try again.                           ║',
@@ -564,7 +564,7 @@ const isDirectRun =
 
 if (isDirectRun) {
   main().catch((err) => {
-    logger.error({ err }, 'Failed to start AutomatanAbot');
+    logger.error({ err }, 'Failed to start AutomatonAbot');
     process.exit(1);
   });
 }

@@ -1,5 +1,5 @@
 /**
- * Stdio MCP Server for AutomatanAbot
+ * Stdio MCP Server for AutomatonAbot
  * Standalone process that agent teams subagents can inherit.
  * Reads context from environment variables, writes IPC files for the host.
  */

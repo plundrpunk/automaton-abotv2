@@ -1,8 +1,8 @@
 {
-  "name": "automatan-agent-runner",
+  "name": "automaton-agent-runner",
   "version": "1.0.0",
   "type": "module",
-  "description": "Agent runner for AutomatanAbot",
+  "description": "Agent runner for AutomatonAbot",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",

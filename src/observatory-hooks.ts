@@ -1,5 +1,5 @@
 /**
- * Observatory Hooks for AutomatanAbot
+ * Observatory Hooks for AutomatonAbot
  * Provides real-time execution visibility to the AMS dashboard
  */
 

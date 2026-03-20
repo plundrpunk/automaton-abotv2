@@ -1,5 +1,5 @@
 /**
- * Phone Home Protocol for AutomatanAbot Fleet
+ * Phone Home Protocol for AutomatonAbot Fleet
  * Handles heartbeat loop, execution streaming, and message polling from AMS
  */
 

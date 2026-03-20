@@ -1,5 +1,5 @@
 /**
- * Fleet Configuration for AutomatanAbot
+ * Fleet Configuration for AutomatonAbot
  * Handles AMS Fleet mode settings
  */
 

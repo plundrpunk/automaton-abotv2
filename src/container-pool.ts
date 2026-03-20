@@ -1,5 +1,5 @@
 /**
- * Container Pool for AutomatanAbot
+ * Container Pool for AutomatonAbot
  *
  * Manages persistent container sessions per group.
  * First message goes via stdin. Follow-ups go via IPC files.
