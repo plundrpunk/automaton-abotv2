@@ -1,0 +1,70 @@
+x-hand-env: &hand-env
+  AUTOMATON_AMS_URL: ${AUTOMATON_AMS_URL:-http://host.docker.internal:3001}
+  AUTOMATON_AMS_API_KEY: ${AUTOMATON_AMS_API_KEY:-}
+
+x-hand-service: &hand-service
+  build:
+    context: .
+    dockerfile: Dockerfile
+  image: abot-v3:local
+  command: ["abot", "--config", "config/abot.toml"]
+  restart: unless-stopped
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+
+services:
+  general-assistant:
+    <<: *hand-service
+    environment:
+      <<: *hand-env
+      AUTOMATON_AGENT_NAME: general-assistant
+      AUTOMATON_AGENT_ID: general-assistant
+
+  researcher:
+    <<: *hand-service
+    environment:
+      <<: *hand-env
+      AUTOMATON_AGENT_NAME: researcher
+      AUTOMATON_AGENT_ID: researcher
+
+  backend-engineer:
+    <<: *hand-service
+    environment:
+      <<: *hand-env
+      AUTOMATON_AGENT_NAME: backend-engineer
+      AUTOMATON_AGENT_ID: backend-engineer
+
+  frontend-engineer:
+    <<: *hand-service
+    environment:
+      <<: *hand-env
+      AUTOMATON_AGENT_NAME: frontend-engineer
+      AUTOMATON_AGENT_ID: frontend-engineer
+
+  technical-writer:
+    <<: *hand-service
+    environment:
+      <<: *hand-env
+      AUTOMATON_AGENT_NAME: technical-writer
+      AUTOMATON_AGENT_ID: technical-writer
+
+  memory-curator:
+    <<: *hand-service
+    environment:
+      <<: *hand-env
+      AUTOMATON_AGENT_NAME: memory-curator
+      AUTOMATON_AGENT_ID: memory-curator
+
+  data-analyst:
+    <<: *hand-service
+    environment:
+      <<: *hand-env
+      AUTOMATON_AGENT_NAME: data-analyst
+      AUTOMATON_AGENT_ID: data-analyst
+
+  task-runner:
+    <<: *hand-service
+    environment:
+      <<: *hand-env
+      AUTOMATON_AGENT_NAME: task-runner
+      AUTOMATON_AGENT_ID: task-runner

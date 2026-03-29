@@ -1,0 +1,95 @@
+# Automaton Abot v3 Configuration
+# Model-agnostic AI agent runtime with AMS-integrated lifecycle management
+
+[agent]
+name = "abot-default"
+id = ""  # Auto-generated UUID if empty
+
+[ams]
+url = "http://localhost:3001"
+# url = "https://ams.automaton.dev"  # Production
+api_key = ""  # Set via AUTOMATON_AMS_API_KEY env var
+heartbeat_interval_secs = 10
+connect_timeout_ms = 5000
+request_timeout_ms = 30000
+
+[llm]
+provider = "kilo"  # "kilo" | "direct"
+
+[llm.kilo]
+binary = "kilo"  # Path to Kilo CLI binary
+default_mode = "code"  # code | architect | debug | ask | orchestrator
+
+[llm.routing]
+# Task type → model mapping
+# "auto" lets Kilo decide based on task complexity
+simple_chat = "minimax-m2.1"
+code_generation = "claude-sonnet-4-6"
+architecture = "claude-opus-4-6"
+debugging = "qwen3-coder-30b"
+research = "glm-5"
+
+[llm.fallback]
+chain = ["claude-sonnet-4-6", "gpt-4o", "qwen3-coder-30b"]
+max_retries = 2
+
+[sandbox]
+enabled = true
+engine = "wasmtime"  # Currently only wasmtime supported
+fuel_limit = 10_000_000_000       # Max compute units per execution
+memory_limit_mb = 256              # Max RAM per WASM instance
+epoch_deadline_ms = 60_000         # 60s max wall time
+allowed_paths = ["/workspace"]     # Filesystem grants (relative to sandbox root)
+network_allowed = false            # Default: no network for automata
+
+[security]
+merkle_audit = true
+secret_zeroization = true
+taint_tracking = true
+ssrf_protection = true
+manifest_signing = true
+signing_key_path = ""  # Path to Ed25519 private key
+
+[channels]
+# Enable/disable messaging adapters
+# Credentials set via env vars: AUTOMATON_TELEGRAM_TOKEN, etc.
+
+[channels.telegram]
+enabled = false
+token = ""  # Set via AUTOMATON_TELEGRAM_TOKEN
+
+[channels.discord]
+enabled = false
+token = ""  # Set via AUTOMATON_DISCORD_TOKEN
+
+[channels.slack]
+enabled = false
+token = ""  # Set via AUTOMATON_SLACK_TOKEN
+
+[channels.whatsapp]
+enabled = false
+# Uses Baileys-compatible connection
+
+[mcp]
+# MCP server exposure
+server_enabled = false
+server_port = 5100
+# MCP client connections
+clients = []
+# Example:
+# [[mcp.clients]]
+# name = "filesystem"
+# transport = "stdio"
+# command = "npx"
+# args = ["-y", "@modelcontextprotocol/server-filesystem", "/workspace"]
+
+[telemetry]
+enabled = true
+log_level = "info"  # trace | debug | info | warn | error
+log_format = "json"  # json | pretty
+metrics_port = 9090  # Prometheus metrics endpoint
+
+[hands]
+# Autonomous agent definitions loaded from hands/ directory
+enabled = true
+directory = "./hands"

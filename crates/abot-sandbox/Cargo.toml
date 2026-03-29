@@ -1,0 +1,14 @@
+[package]
+name = "abot-sandbox"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+tokio.workspace = true
+wasmtime.workspace = true
+wasmtime-wasi.workspace = true
+serde.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
+thiserror = "2"
+sha2.workspace = true

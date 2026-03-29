@@ -1,0 +1,15 @@
+[package]
+name = "abot-security"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+serde.workspace = true
+sha2.workspace = true
+ed25519-dalek.workspace = true
+zeroize.workspace = true
+rand.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
+thiserror = "2"
+chrono.workspace = true

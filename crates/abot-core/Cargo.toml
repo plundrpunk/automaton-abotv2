@@ -1,0 +1,23 @@
+[package]
+name = "abot-core"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+
+abot-sandbox.workspace = true
+abot-llm.workspace = true
+abot-mcp.workspace = true
+abot-channels.workspace = true
+abot-telemetry.workspace = true
+abot-ams.workspace = true
+abot-security.workspace = true

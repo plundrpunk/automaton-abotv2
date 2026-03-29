@@ -1,0 +1,75 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/abot-core",
+    "crates/abot-sandbox",
+    "crates/abot-llm",
+    "crates/abot-mcp",
+    "crates/abot-channels",
+    "crates/abot-telemetry",
+    "crates/abot-ams",
+    "crates/abot-security",
+    "crates/abot-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+authors = ["Automaton <hello@automaton.dev>"]
+license = "MIT"
+repository = "https://github.com/plundrpunk/automaton-abot"
+
+[workspace.dependencies]
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+
+# HTTP client (AMS communication)
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+
+# WASM runtime
+wasmtime = "25"
+wasmtime-wasi = "25"
+
+# Security
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+zeroize = { version = "1", features = ["derive"] }
+sha2 = "0.10"
+rand = "0.8"
+
+# Token counting
+tiktoken-rs = "0.6"
+
+# Logging / tracing
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# Error handling
+anyhow = "1"
+thiserror = "2"
+
+# Time
+chrono = { version = "0.4", features = ["serde"] }
+
+# UUID
+uuid = { version = "1", features = ["v4", "serde"] }
+
+# Async traits
+async-trait = "0.1"
+
+# Internal crates
+abot-core = { path = "crates/abot-core" }
+abot-sandbox = { path = "crates/abot-sandbox" }
+abot-llm = { path = "crates/abot-llm" }
+abot-mcp = { path = "crates/abot-mcp" }
+abot-channels = { path = "crates/abot-channels" }
+abot-telemetry = { path = "crates/abot-telemetry" }
+abot-ams = { path = "crates/abot-ams" }
+abot-security = { path = "crates/abot-security" }

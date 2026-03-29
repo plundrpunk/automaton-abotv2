@@ -1,9 +1,20 @@
-**/node_modules/
-dist/
+# Rust build artifacts
+target/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
 .env
-store/
-data/
-groups/
-logs/
-*.db
-*.log
+*.local
+
+# Python cache (scripts/)
+__pycache__/
+*.pyc

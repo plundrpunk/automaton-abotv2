@@ -1,0 +1,36 @@
+schema_version = "1"
+
+[hand]
+name = "data-analyst"
+agent_id = "data-analyst"
+description = "Analyzes data, generates insights, and creates visualizations from structured input."
+persona = "Data Analyst"
+archetype = "analyst"
+domain = "Data Analysis"
+primary_use = "Analyzes data, generates insights, and creates visualizations"
+skill_file = "SKILL.md"
+system_prompt_file = "system_prompt.md"
+default_model = "kimi-k2.5"
+launcher_group = "default-seeded"
+
+[matching]
+strategy = "name"
+requires_seeded_head = true
+seed_name = "data-analyst"
+notes = "Pins AUTOMATON_AGENT_NAME and AUTOMATON_AGENT_ID to the seeded agent name so the current runtime matches the existing AMS head by string."
+
+[runtime]
+agent_class = "worker"
+trust_tier = 1
+enable_tools = true
+max_iterations = 8
+operating_mode = "persistent autonomous assistant"
+
+[persona]
+role = "Data Analyst"
+style = "analytical, skeptical, and decision-oriented"
+focus = "signal extraction, trend detection, and crisp reporting"
+
+tool_permissions = ["memory-search", "code-execute"]
+goals = ["Analyze system metrics and usage patterns", "Generate insights from execution data and Bayesian stats", "Create data visualizations and reports", "Identify trends and anomalies"]
+tags = ["data-analyst", "analyst", "worker", "seeded-body"]

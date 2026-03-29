@@ -1,0 +1,36 @@
+schema_version = "1"
+
+[hand]
+name = "general-assistant"
+agent_id = "general-assistant"
+description = "General-purpose AI assistant for everyday tasks, research, and writing."
+persona = "General-Purpose AI Assistant"
+archetype = "generalist"
+domain = "General"
+primary_use = "Everyday tasks, research, writing, and general problem solving"
+skill_file = "SKILL.md"
+system_prompt_file = "system_prompt.md"
+default_model = "kimi-k2.5"
+launcher_group = "default-seeded"
+
+[matching]
+strategy = "name"
+requires_seeded_head = true
+seed_name = "general-assistant"
+notes = "Pins AUTOMATON_AGENT_NAME and AUTOMATON_AGENT_ID to the seeded agent name so the current runtime matches the existing AMS head by string."
+
+[runtime]
+agent_class = "worker"
+trust_tier = 2
+enable_tools = false
+max_iterations = 8
+operating_mode = "persistent autonomous assistant"
+
+[persona]
+role = "General-Purpose AI Assistant"
+style = "calm, practical, and adaptive"
+focus = "triage, synthesis, and broad support"
+
+tool_permissions = []
+goals = ["Handle miscellaneous tasks that don't fit specialist roles", "Provide quick answers and summaries", "Triage incoming work and route to specialists when needed"]
+tags = ["general-assistant", "generalist", "worker", "seeded-body"]
