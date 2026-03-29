@@ -1,110 +1,145 @@
-# abot-v3
+# Automaton Abot
 
-`abot-v3` is the current ABot runtime workspace: a Rust agent process that connects to AMS, matches a single seeded head by name, and executes automata inside a Wasmtime sandbox.
+**Built by [DRF](https://github.com/plundrpunk) — the runtime that gives AI agents a body.**
 
-## What abot-v3 is today
+Automaton Abot is an open-source Rust runtime for autonomous AI agents. Each Abot is a lightweight, sandboxed process that connects to [AMS](https://github.com/plundrpunk/agent-memory-backend) (Agent Memory System) for lifecycle management, persistent memory, and fleet coordination.
 
-- One ABot process runs one agent body.
-- Repo-shipped bodies live under `hands/`.
-- The 8 shipped bodies are seeded to match existing AMS heads by direct string name.
-- The current runtime is still one-agent-per-process, so Docker Compose runs one container per body.
+This is the **body**. AMS is the **head**.
 
-## Current matching contract
+> Fork the body, build your own agents, run them against any AMS instance.
+> The body is MIT-licensed. Ship it, mod it, sell it.
 
-Today the safest matching contract for shipped bodies is direct name matching:
+---
 
-- `hands/<body-name>/` folder name
-- AMS head name
-- `AUTOMATON_AGENT_NAME`
-- `AUTOMATON_AGENT_ID`
+## Architecture
 
-For shipped bodies, all four values should be the same string.
-
-Example for `researcher`:
-
-```text
-hands/researcher == researcher == AUTOMATON_AGENT_NAME == AUTOMATON_AGENT_ID
+```
+┌─────────────────────────────────────────┐
+│  AMS (proprietary head)                 │
+│  Memory · Warden · Fleet · Trust Grants │
+└──────────────────┬──────────────────────┘
+                   │ HTTP/JSON
+┌──────────────────▼──────────────────────┐
+│  Abot Body (this repo, open source)     │
+│  ┌───────────┐  ┌────────────────────┐  │
+│  │ HAND.toml │  │ Rust Event Loop    │  │
+│  │ (identity)│  │  birth → work →    │  │
+│  │           │  │  heartbeat → death │  │
+│  └───────────┘  └────────┬───────────┘  │
+│                          │              │
+│                 ┌────────▼───────────┐  │
+│                 │ WASM Sandbox       │  │
+│                 │ (automata execute  │  │
+│                 │  here, isolated)   │  │
+│                 └────────────────────┘  │
+└─────────────────────────────────────────┘
 ```
 
-## Docker outside, WASM inside
+- **Docker** isolates each body process
+- **WASM** (Wasmtime) sandboxes the code each body runs
+- **AMS** decides what the body is allowed to do (trust grants, not self-asserted)
 
-The deployment model is:
+## Trust Boundary
 
-- Docker runs one ABot body per container for process and filesystem isolation.
-- WASM/Wasmtime stays inside the body runtime as the sandbox for automata execution.
+The body sends **claims** (who it is). AMS returns **grants** (what it can do).
 
-In other words: Docker is the outer isolation boundary for the body process, and WASM is the inner sandbox boundary for code the body executes.
+A forked body cannot escalate its own privileges. Even if someone modifies the source to claim `trust_tier: 0` and `agent_class: admin`, AMS will look up the canonical grants from its database and return the real values. Unknown bodies get locked down: `trust_tier: 3`, `untrusted`, tools disabled, nanny-managed.
 
-## Run one body locally
+See [SECURITY.md](SECURITY.md) for the full threat model.
 
-From `abot-v3/`:
+## Quick Start
+
+### Prerequisites
+
+- Rust 1.75+ (`curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`)
+- A running AMS instance (default: `http://localhost:3001`)
+
+### Build and run
 
 ```bash
+cargo build --release
+
 AUTOMATON_AGENT_NAME=researcher \
 AUTOMATON_AGENT_ID=researcher \
-cargo run -p abot-cli -- --config config/abot.toml
+AUTOMATON_AMS_URL=http://localhost:3001 \
+./target/release/abot --config config/abot.toml
 ```
 
-Equivalent helper script:
+Or with the helper script:
 
 ```bash
 python3 scripts/run_hands.py run researcher
 ```
 
-If AMS is not on `http://localhost:3001`, also set `AUTOMATON_AMS_URL`.
-
-## Run one body in Docker
-
-Build the image from `abot-v3/`:
+### Run in Docker
 
 ```bash
-docker build -t abot-v3 .
-```
+docker build -t abot .
 
-Run one body and match it to the seeded AMS head by name:
-
-```bash
 docker run --rm -it \
   --add-host=host.docker.internal:host-gateway \
   -e AUTOMATON_AMS_URL=http://host.docker.internal:3001 \
   -e AUTOMATON_AGENT_NAME=researcher \
   -e AUTOMATON_AGENT_ID=researcher \
-  abot-v3
+  abot
 ```
 
-On macOS with Docker Desktop, `host.docker.internal` resolves automatically. The `--add-host` mapping is included so the same pattern also works on Linux Docker engines that support `host-gateway`.
-
-## Run the built-in 8 in Docker Compose
-
-From `abot-v3/`:
+### Run all 8 shipped bodies
 
 ```bash
 docker compose -f docker-compose.hands.yml up --build -d
 ```
 
-This starts one container for each shipped body:
+This spins up one container per body: `general-assistant`, `researcher`, `backend-engineer`, `frontend-engineer`, `technical-writer`, `memory-curator`, `data-analyst`, `task-runner`.
 
-- `general-assistant`
-- `researcher`
-- `backend-engineer`
-- `frontend-engineer`
-- `technical-writer`
-- `memory-curator`
-- `data-analyst`
-- `task-runner`
+## Shipped Bodies
 
-Each service uses the same image, the same `config/abot.toml`, and pins `AUTOMATON_AGENT_NAME` plus `AUTOMATON_AGENT_ID` to the service name.
+Each body lives in `hands/<name>/` with:
 
-## Add a custom body
+| File | Purpose |
+|------|---------|
+| `HAND.toml` | Identity manifest (name, archetype, domain, persona, goals) |
+| `system_prompt.md` | LLM system prompt for this body's persona |
+| `SKILL.md` | Skill documentation for tool use |
 
-1. Create a new folder under `hands/`, for example `hands/release-manager/`.
-2. Add the body assets you want to ship there.
-3. Create or seed the AMS head with the same name: `release-manager`.
-4. Run the body with `AUTOMATON_AGENT_NAME=release-manager` and `AUTOMATON_AGENT_ID=release-manager`.
-5. If using Compose, add another service that pins both env vars to `release-manager`.
+The matching contract is simple: the folder name = AMS head name = `AUTOMATON_AGENT_NAME` = `AUTOMATON_AGENT_ID`.
 
-The current contract is name based, so the body folder name, AMS head name, `AUTOMATON_AGENT_NAME`, and `AUTOMATON_AGENT_ID` should all match.
+## Add Your Own Body
 
-## Environment variables for Docker and Compose
+1. Create `hands/your-agent-name/`
+2. Add `HAND.toml`, `system_prompt.md`, and optionally `SKILL.md`
+3. Seed the matching head in your AMS instance
+4. Run with `AUTOMATON_AGENT_NAME=your-agent-name`
 
-See `abot-v3/.env.example` for the documented container-oriented variables.
+No Rust required for persona customization — just edit the TOML and markdown.
+
+## Workspace Crates
+
+| Crate | What it does |
+|-------|--------------|
+| `abot-cli` | Binary entry point, CLI args, signal handling |
+| `abot-core` | Event loop, HAND loader, config, runtime |
+| `abot-ams` | AMS HTTP client, Warden protocol types |
+| `abot-sandbox` | Wasmtime engine, fuel metering, permissions |
+| `abot-security` | Ed25519 signing, Merkle audit, taint tracking |
+| `abot-telemetry` | Heartbeat, Prometheus metrics |
+| `abot-llm` | LLM provider routing (Kilo, direct) |
+| `abot-mcp` | MCP client/server for tool use |
+| `abot-channels` | Telegram, Discord, Slack adapters |
+
+## Environment Variables
+
+See [`.env.example`](.env.example) for the full list. The critical ones:
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `AUTOMATON_AMS_URL` | `http://localhost:3001` | AMS server URL |
+| `AUTOMATON_AMS_API_KEY` | (none) | API key for AMS auth |
+| `AUTOMATON_AGENT_NAME` | from config | Body name (must match AMS head) |
+| `AUTOMATON_AGENT_ID` | from config | Agent ID (usually same as name) |
+
+## License
+
+MIT — see [LICENSE](LICENSE).
+
+Built by Drew Rutledge ([@plundrpunk](https://github.com/plundrpunk)). Part of the [Automaton](https://github.com/plundrpunk) ecosystem.
