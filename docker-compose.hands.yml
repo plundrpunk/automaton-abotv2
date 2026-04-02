@@ -1,5 +1,5 @@
 x-hand-env: &hand-env
-  AUTOMATON_AMS_URL: ${AUTOMATON_AMS_URL:-http://host.docker.internal:3001}
+  AUTOMATON_AMS_URL: ${AUTOMATON_AMS_URL:-http://ams-server:3001}
   AUTOMATON_AMS_API_KEY: ${AUTOMATON_AMS_API_KEY:-}
 
 x-hand-service: &hand-service
@@ -9,10 +9,16 @@ x-hand-service: &hand-service
   image: abot-v3:local
   command: ["abot", "--config", "config/abot.toml"]
   restart: unless-stopped
-  extra_hosts:
-    - "host.docker.internal:host-gateway"
+  networks:
+    - ams_network
+
+networks:
+  ams_network:
+    external: true
+    name: ams_ams_network
 
 services:
+  # === Original 8 specialist hands ===
   general-assistant:
     <<: *hand-service
     environment:
@@ -68,3 +74,104 @@ services:
       <<: *hand-env
       AUTOMATON_AGENT_NAME: task-runner
       AUTOMATON_AGENT_ID: task-runner
+
+  # === Prime body bound to the seeded AMS root Abot head ===
+  automaton-abot-prime-v2:
+    <<: *hand-service
+    environment:
+      <<: *hand-env
+      AUTOMATON_AGENT_NAME: "Automaton-Abot Prime V2"
+      AUTOMATON_AGENT_ID: "Automaton-Abot Prime V2"
+      AUTOMATON_HAND_DIR: ./hands/automaton-abot-prime-v2
+
+  # === 13 Team Lead hands (domain knowledge maintainers) ===
+  tl-engineering:
+    <<: *hand-service
+    environment:
+      <<: *hand-env
+      AUTOMATON_AGENT_NAME: tl-engineering
+      AUTOMATON_AGENT_ID: tl-engineering
+
+  tl-marketing:
+    <<: *hand-service
+    environment:
+      <<: *hand-env
+      AUTOMATON_AGENT_NAME: tl-marketing
+      AUTOMATON_AGENT_ID: tl-marketing
+
+  tl-specialized:
+    <<: *hand-service
+    environment:
+      <<: *hand-env
+      AUTOMATON_AGENT_NAME: tl-specialized
+      AUTOMATON_AGENT_ID: tl-specialized
+
+  tl-gamedev:
+    <<: *hand-service
+    environment:
+      <<: *hand-env
+      AUTOMATON_AGENT_NAME: tl-gamedev
+      AUTOMATON_AGENT_ID: tl-gamedev
+
+  tl-design:
+    <<: *hand-service
+    environment:
+      <<: *hand-env
+      AUTOMATON_AGENT_NAME: tl-design
+      AUTOMATON_AGENT_ID: tl-design
+
+  tl-testing:
+    <<: *hand-service
+    environment:
+      <<: *hand-env
+      AUTOMATON_AGENT_NAME: tl-testing
+      AUTOMATON_AGENT_ID: tl-testing
+
+  tl-sales:
+    <<: *hand-service
+    environment:
+      <<: *hand-env
+      AUTOMATON_AGENT_NAME: tl-sales
+      AUTOMATON_AGENT_ID: tl-sales
+
+  tl-paid-media:
+    <<: *hand-service
+    environment:
+      <<: *hand-env
+      AUTOMATON_AGENT_NAME: tl-paid-media
+      AUTOMATON_AGENT_ID: tl-paid-media
+
+  tl-project-mgmt:
+    <<: *hand-service
+    environment:
+      <<: *hand-env
+      AUTOMATON_AGENT_NAME: tl-project-mgmt
+      AUTOMATON_AGENT_ID: tl-project-mgmt
+
+  tl-spatial:
+    <<: *hand-service
+    environment:
+      <<: *hand-env
+      AUTOMATON_AGENT_NAME: tl-spatial
+      AUTOMATON_AGENT_ID: tl-spatial
+
+  tl-support:
+    <<: *hand-service
+    environment:
+      <<: *hand-env
+      AUTOMATON_AGENT_NAME: tl-support
+      AUTOMATON_AGENT_ID: tl-support
+
+  tl-product:
+    <<: *hand-service
+    environment:
+      <<: *hand-env
+      AUTOMATON_AGENT_NAME: tl-product
+      AUTOMATON_AGENT_ID: tl-product
+
+  tl-academic:
+    <<: *hand-service
+    environment:
+      <<: *hand-env
+      AUTOMATON_AGENT_NAME: tl-academic
+      AUTOMATON_AGENT_ID: tl-academic

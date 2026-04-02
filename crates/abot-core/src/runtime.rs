@@ -1,12 +1,18 @@
 use anyhow::Result;
+use chrono::Utc;
 use tokio::sync::mpsc;
 use tracing::{info, warn, error};
+use uuid::Uuid;
 
 use crate::config::AbotConfig;
 use crate::hand::{LoadedHand, load_hand};
-use abot_ams::client::{AmsClient, AmsConfig};
+use abot_ams::client::{AmsClient, AmsConfig, SteeringMessage};
+use abot_ams::fleet::{ExecutionChunkData, ExecutionChunkRequest, RegisterExecutionRequest};
+use abot_ams::llm::CompletionRequest;
 use abot_ams::warden::{BirthRequest, Directive};
 use abot_telemetry::heartbeat::{HeartbeatReporter, RuntimeState as TelemetryState};
+use abot_llm::KiloBridge;
+use abot_llm::kilo::KiloMode;
 
 /// The main runtime event loop for the Abot.
 ///
@@ -28,6 +34,14 @@ pub struct RuntimeState {
     pub current_execution: Option<String>,
     pub token_count: u64,
     pub max_tokens: u64,
+}
+
+struct GenerationResult {
+    content: String,
+    model: String,
+    provider: String,
+    input_tokens: u64,
+    output_tokens: u64,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -157,6 +171,7 @@ impl Runtime {
         let mut heartbeat_interval = tokio::time::interval(
             std::time::Duration::from_secs(self.config.ams.heartbeat_interval_secs)
         );
+        let mut message_poll_interval = tokio::time::interval(std::time::Duration::from_secs(1));
 
         loop {
             // Convert core RuntimeState → telemetry RuntimeState for heartbeat
@@ -200,6 +215,27 @@ impl Runtime {
                     }
                 },
 
+                _ = message_poll_interval.tick() => {
+                    match self.ams.poll_messages(&state.agent_id).await {
+                        Ok(messages) => {
+                            for message in messages {
+                                if message.recipient != "agent" {
+                                    continue;
+                                }
+
+                                if let Err(e) = self.handle_steering_message(&mut state, message).await {
+                                    warn!(error = %e, agent_id = %state.agent_id, "Steering message handling failed");
+                                    state.status = AgentStatus::Idle;
+                                    state.current_execution = None;
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            warn!(error = %e, agent_id = %state.agent_id, "Message polling failed");
+                        }
+                    }
+                },
+
                 // Shutdown signal (SIGTERM, SIGINT)
                 _ = self.shutdown_rx.recv() => {
                     info!("Shutdown signal received");
@@ -208,10 +244,231 @@ impl Runtime {
                     return Ok(());
                 },
 
-                // TODO: Channel message handler
                 // TODO: Task execution handler
                 // TODO: MCP request handler
             }
+        }
+    }
+
+    async fn handle_steering_message(
+        &self,
+        state: &mut RuntimeState,
+        message: SteeringMessage,
+    ) -> Result<()> {
+        let prompt = message.content_text().trim().to_string();
+        if prompt.is_empty() {
+            return Ok(());
+        }
+
+        let fleet_execution_id = format!("fleet-{}", Uuid::new_v4().simple());
+        let requested_model = self.requested_model();
+        let execution = self.ams.register_execution(&RegisterExecutionRequest {
+            agent_id: state.agent_id.clone(),
+            tenant_id: "default".to_string(),
+            execution_id: fleet_execution_id.clone(),
+            agent_name: self.config.agent.name.clone(),
+            task: prompt.clone(),
+            model: requested_model.clone(),
+            instance_id: None,
+            user_id: None,
+        }).await?;
+
+        state.status = AgentStatus::Working;
+        state.current_execution = Some(execution.execution_id.clone());
+
+        info!(
+            agent_id = %state.agent_id,
+            execution_id = %execution.execution_id,
+            sender = %message.sender,
+            message_type = %message.msg_type,
+            "Processing steering message"
+        );
+
+        self.ams.emit_execution_chunk(
+            &fleet_execution_id,
+            &ExecutionChunkRequest {
+                agent_id: state.agent_id.clone(),
+                tenant_id: "default".to_string(),
+                execution_id: fleet_execution_id.clone(),
+                chunk_type: "start".to_string(),
+                timestamp: Utc::now().to_rfc3339(),
+                data: ExecutionChunkData {
+                    model: Some(requested_model.clone()),
+                    ..Default::default()
+                },
+            },
+        ).await?;
+
+        let started_at = std::time::Instant::now();
+
+        let result = self.generate_response(&prompt).await;
+        let final_event = match result {
+            Ok(result) => {
+                state.token_count = state
+                    .token_count
+                    .saturating_add(result.input_tokens + result.output_tokens);
+                state.context_pct = ((state.token_count as f64 / state.max_tokens as f64) * 100.0)
+                    .clamp(0.0, 100.0);
+
+                self.ams.emit_execution_chunk(
+                    &fleet_execution_id,
+                    &ExecutionChunkRequest {
+                        agent_id: state.agent_id.clone(),
+                        tenant_id: "default".to_string(),
+                        execution_id: fleet_execution_id.clone(),
+                        chunk_type: "output".to_string(),
+                        timestamp: Utc::now().to_rfc3339(),
+                        data: ExecutionChunkData {
+                            content: Some(result.content.clone()),
+                            model: Some(result.model.clone()),
+                            ..Default::default()
+                        },
+                    },
+                ).await?;
+
+                info!(
+                    agent_id = %state.agent_id,
+                    execution_id = %execution.execution_id,
+                    provider = %result.provider,
+                    model = %result.model,
+                    "Steering message completed"
+                );
+
+                ExecutionChunkRequest {
+                    agent_id: state.agent_id.clone(),
+                    tenant_id: "default".to_string(),
+                    execution_id: fleet_execution_id.clone(),
+                    chunk_type: "complete".to_string(),
+                    timestamp: Utc::now().to_rfc3339(),
+                    data: ExecutionChunkData {
+                        tokens_in: Some(result.input_tokens),
+                        tokens_out: Some(result.output_tokens),
+                        duration_ms: Some(started_at.elapsed().as_millis() as u64),
+                        model: Some(result.model),
+                        ..Default::default()
+                    },
+                }
+            }
+            Err(error) => {
+                warn!(
+                    agent_id = %state.agent_id,
+                    execution_id = %execution.execution_id,
+                    error = %error,
+                    "Steering message failed"
+                );
+                ExecutionChunkRequest {
+                    agent_id: state.agent_id.clone(),
+                    tenant_id: "default".to_string(),
+                    execution_id: fleet_execution_id.clone(),
+                    chunk_type: "error".to_string(),
+                    timestamp: Utc::now().to_rfc3339(),
+                    data: ExecutionChunkData {
+                        duration_ms: Some(started_at.elapsed().as_millis() as u64),
+                        error: Some(error.to_string()),
+                        model: Some(requested_model),
+                        ..Default::default()
+                    },
+                }
+            }
+        };
+
+        self.ams.emit_execution_chunk(&fleet_execution_id, &final_event).await?;
+        state.status = AgentStatus::Idle;
+        state.current_execution = None;
+        Ok(())
+    }
+
+    async fn generate_response(&self, prompt: &str) -> Result<GenerationResult> {
+        let system_prompt = self.hand.as_ref().and_then(|hand| hand.system_prompt.clone());
+
+        if let Some(bridge) = self.kilo_bridge() {
+            let mode = self.kilo_mode();
+            let prompt_for_kilo = if let Some(system) = &system_prompt {
+                format!("{system}\n\nUser request:\n{prompt}")
+            } else {
+                prompt.to_string()
+            };
+
+            let response = tokio::task::spawn_blocking(move || bridge.execute(&prompt_for_kilo, mode))
+                .await??;
+
+            return Ok(GenerationResult {
+                content: response.content,
+                model: response.model_used,
+                provider: "kilo_local".to_string(),
+                input_tokens: 0,
+                output_tokens: response.tokens_used,
+            });
+        }
+
+        let requested_model = self.requested_model();
+        let response = self.ams.complete(&CompletionRequest {
+            prompt: prompt.to_string(),
+            max_tokens: 4000,
+            role: "agent".to_string(),
+            model: Some(requested_model),
+            system_prompt,
+            temperature: None,
+        }).await?;
+
+        Ok(GenerationResult {
+            content: response.text,
+            model: response.model,
+            provider: response.provider,
+            input_tokens: response.input_tokens,
+            output_tokens: response.output_tokens,
+        })
+    }
+
+    fn requested_model(&self) -> String {
+        if let Some(hand) = &self.hand {
+            if !hand.manifest.hand.default_model.trim().is_empty() {
+                return hand.manifest.hand.default_model.trim().to_string();
+            }
+        }
+
+        match self.config.llm.provider {
+            crate::config::LlmProvider::Kilo => "kilo".to_string(),
+            crate::config::LlmProvider::Direct => "ams-agent".to_string(),
+        }
+    }
+
+    fn kilo_bridge(&self) -> Option<KiloBridge> {
+        if !matches!(self.config.llm.provider, crate::config::LlmProvider::Kilo) {
+            return None;
+        }
+
+        let kilo_path = self
+            .config
+            .llm
+            .kilo
+            .as_ref()
+            .map(|cfg| cfg.binary.clone())
+            .unwrap_or_else(|| "kilo".to_string());
+
+        let path = std::path::Path::new(&kilo_path);
+        if (path.is_absolute() && path.exists()) || which::which(&kilo_path).is_ok() {
+            Some(KiloBridge::new(Some(kilo_path)))
+        } else {
+            None
+        }
+    }
+
+    fn kilo_mode(&self) -> KiloMode {
+        let raw_mode = self
+            .config
+            .llm
+            .kilo
+            .as_ref()
+            .map(|cfg| cfg.default_mode.as_str())
+            .unwrap_or("code");
+
+        match raw_mode {
+            "architect" => KiloMode::Architect,
+            "debug" => KiloMode::Debug,
+            "ask" => KiloMode::Ask,
+            "orchestrator" => KiloMode::Orchestrator,
+            _ => KiloMode::Code,
         }
     }
 

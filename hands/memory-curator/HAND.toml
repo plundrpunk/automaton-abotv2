@@ -10,7 +10,7 @@ domain = "Memory Management"
 primary_use = "Reviews, organizes, links, and cleans up memories. Finds duplicates and gaps"
 skill_file = "SKILL.md"
 system_prompt_file = "system_prompt.md"
-default_model = "kimi-k2.5"
+default_model = "codex"
 launcher_group = "default-seeded"
 
 [matching]
