@@ -11,7 +11,7 @@ use crate::fleet::{
     RegisterExecutionRequest,
     RegisterExecutionResponse,
 };
-use crate::llm::{CompletionRequest, CompletionResponse};
+use crate::llm::{CompletionRequest, CompletionResponse, ToolCompletionRequest, ToolCompletionResponse};
 use crate::warden::{BirthRequest, BirthResponse, DeathRequest, DeathResponse};
 use crate::warden::{AmsHeartbeatResponse, HeartbeatPayload, HeartbeatResponse};
 
@@ -197,6 +197,65 @@ impl AmsClient {
             .json()
             .await?;
 
+        Ok(resp)
+    }
+
+
+    /// LLM completion with tool calling support.
+    pub async fn complete_with_tools(
+        &self,
+        request: &ToolCompletionRequest,
+    ) -> Result<ToolCompletionResponse> {
+        let url = format!("{}/api/v1/llm/complete-with-tools", self.base_url);
+        let timeout_ms = self.request_timeout_ms.max(180_000);
+        let resp = self.request(Method::POST, url)
+            .timeout(Duration::from_millis(timeout_ms))
+            .json(request)
+            .send()
+            .await?
+            .error_for_status()?
+            .json::<ToolCompletionResponse>()
+            .await?;
+        Ok(resp)
+    }
+
+    /// Send a steering message to another agent via Warden.
+    pub async fn send_steering_message(
+        &self,
+        agent_id: &str,
+        content: &str,
+        msg_type: &str,
+        sender: &str,
+    ) -> Result<serde_json::Value> {
+        let url = format!(
+            "{}/api/warden/agents/{}/messages",
+            self.base_url,
+            urlencoding::encode(agent_id)
+        );
+        let payload = serde_json::json!({
+            "type": msg_type,
+            "content": content,
+            "sender": sender,
+        });
+        let resp = self.request(Method::POST, url)
+            .json(&payload)
+            .send()
+            .await?
+            .error_for_status()?
+            .json::<serde_json::Value>()
+            .await?;
+        Ok(resp)
+    }
+
+    /// List agents with v3-body capability.
+    pub async fn list_worker_agents(&self) -> Result<Vec<serde_json::Value>> {
+        let url = format!("{}/api/agents", self.base_url);
+        let resp = self.request(Method::GET, url)
+            .send()
+            .await?
+            .error_for_status()?
+            .json::<Vec<serde_json::Value>>()
+            .await?;
         Ok(resp)
     }
 

@@ -24,3 +24,32 @@ pub struct CompletionResponse {
     pub cost: f64,
     pub request_id: String,
 }
+
+/// Request for LLM completion with tool calling.
+#[derive(Debug, Serialize)]
+pub struct ToolCompletionRequest {
+    pub messages: Vec<serde_json::Value>,
+    pub tools: Vec<serde_json::Value>,
+    pub max_tokens: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub temperature: Option<f64>,
+}
+
+/// Response from LLM tool completion.
+#[derive(Debug, Deserialize)]
+pub struct ToolCompletionResponse {
+    pub text: String,
+    pub model: String,
+    pub provider: String,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    #[serde(default)]
+    pub tool_calls: Vec<serde_json::Value>,
+    #[serde(default = "default_stop")]
+    pub finish_reason: String,
+    pub request_id: String,
+}
+
+fn default_stop() -> String { "stop".to_string() }

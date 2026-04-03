@@ -8,7 +8,7 @@ use crate::config::AbotConfig;
 use crate::hand::{LoadedHand, load_hand};
 use abot_ams::client::{AmsClient, AmsConfig, SteeringMessage};
 use abot_ams::fleet::{ExecutionChunkData, ExecutionChunkRequest, RegisterExecutionRequest};
-use abot_ams::llm::CompletionRequest;
+use abot_ams::llm::{CompletionRequest, ToolCompletionRequest};
 use abot_ams::warden::{BirthRequest, Directive};
 use abot_telemetry::heartbeat::{HeartbeatReporter, RuntimeState as TelemetryState};
 use abot_llm::KiloBridge;
@@ -300,22 +300,55 @@ impl Runtime {
         ).await?;
 
         let started_at = std::time::Instant::now();
+        let system_prompt = self.hand.as_ref().and_then(|hand| hand.system_prompt.clone());
 
-        let result = self.generate_response(&prompt).await;
-        let final_event = match result {
+        // Check if this agent has tools enabled (team-lead class)
+        let has_tools = self.hand.as_ref()
+            .map(|h| h.manifest.hand.archetype == "team-lead")
+            .unwrap_or(false);
+
+        let final_event = if has_tools {
+            self.run_tool_loop(
+                state, &fleet_execution_id, &prompt, &requested_model,
+                system_prompt.as_deref(), started_at,
+            ).await
+        } else {
+            // Non-TL agents: single-shot response (original behavior)
+            self.run_single_shot(
+                state, &fleet_execution_id, &prompt, &requested_model,
+                started_at,
+            ).await
+        };
+
+        self.ams.emit_execution_chunk(&fleet_execution_id, &final_event?).await?;
+        state.status = AgentStatus::Idle;
+        state.current_execution = None;
+        Ok(())
+    }
+
+    /// Single-shot LLM response (no tools) for non-TL agents.
+    async fn run_single_shot(
+        &self,
+        state: &mut RuntimeState,
+        fleet_execution_id: &str,
+        prompt: &str,
+        requested_model: &str,
+        started_at: std::time::Instant,
+    ) -> Result<ExecutionChunkRequest> {
+        let result = self.generate_response(prompt).await;
+        match result {
             Ok(result) => {
-                state.token_count = state
-                    .token_count
+                state.token_count = state.token_count
                     .saturating_add(result.input_tokens + result.output_tokens);
                 state.context_pct = ((state.token_count as f64 / state.max_tokens as f64) * 100.0)
                     .clamp(0.0, 100.0);
 
                 self.ams.emit_execution_chunk(
-                    &fleet_execution_id,
+                    fleet_execution_id,
                     &ExecutionChunkRequest {
                         agent_id: state.agent_id.clone(),
                         tenant_id: "default".to_string(),
-                        execution_id: fleet_execution_id.clone(),
+                        execution_id: fleet_execution_id.to_string(),
                         chunk_type: "output".to_string(),
                         timestamp: Utc::now().to_rfc3339(),
                         data: ExecutionChunkData {
@@ -328,16 +361,15 @@ impl Runtime {
 
                 info!(
                     agent_id = %state.agent_id,
-                    execution_id = %execution.execution_id,
                     provider = %result.provider,
                     model = %result.model,
-                    "Steering message completed"
+                    "Steering message completed (single-shot)"
                 );
 
-                ExecutionChunkRequest {
+                Ok(ExecutionChunkRequest {
                     agent_id: state.agent_id.clone(),
                     tenant_id: "default".to_string(),
-                    execution_id: fleet_execution_id.clone(),
+                    execution_id: fleet_execution_id.to_string(),
                     chunk_type: "complete".to_string(),
                     timestamp: Utc::now().to_rfc3339(),
                     data: ExecutionChunkData {
@@ -347,35 +379,332 @@ impl Runtime {
                         model: Some(result.model),
                         ..Default::default()
                     },
-                }
+                })
             }
             Err(error) => {
-                warn!(
-                    agent_id = %state.agent_id,
-                    execution_id = %execution.execution_id,
-                    error = %error,
-                    "Steering message failed"
-                );
-                ExecutionChunkRequest {
+                warn!(error = %error, "Steering message failed (single-shot)");
+                Ok(ExecutionChunkRequest {
                     agent_id: state.agent_id.clone(),
                     tenant_id: "default".to_string(),
-                    execution_id: fleet_execution_id.clone(),
+                    execution_id: fleet_execution_id.to_string(),
                     chunk_type: "error".to_string(),
                     timestamp: Utc::now().to_rfc3339(),
                     data: ExecutionChunkData {
                         duration_ms: Some(started_at.elapsed().as_millis() as u64),
                         error: Some(error.to_string()),
-                        model: Some(requested_model),
+                        model: Some(requested_model.to_string()),
                         ..Default::default()
                     },
+                })
+            }
+        }
+    }
+
+    /// Tool-use loop for team-lead agents.
+    async fn run_tool_loop(
+        &self,
+        state: &mut RuntimeState,
+        fleet_execution_id: &str,
+        prompt: &str,
+        requested_model: &str,
+        system_prompt: Option<&str>,
+        started_at: std::time::Instant,
+    ) -> Result<ExecutionChunkRequest> {
+        let tools = Self::tl_tool_definitions();
+
+        let mut messages: Vec<serde_json::Value> = Vec::new();
+        if let Some(sys) = system_prompt {
+            messages.push(serde_json::json!({"role": "system", "content": sys}));
+        }
+        messages.push(serde_json::json!({"role": "user", "content": prompt}));
+
+        let max_iterations = 12;
+        let mut total_in_tokens: u64 = 0;
+        let mut total_out_tokens: u64 = 0;
+        let mut final_text = String::new();
+
+        for iteration in 0..max_iterations {
+            info!(
+                agent_id = %state.agent_id,
+                iteration = iteration,
+                messages = messages.len(),
+                "Tool loop iteration"
+            );
+
+            let response = self.ams.complete_with_tools(&ToolCompletionRequest {
+                messages: messages.clone(),
+                tools: tools.clone(),
+                max_tokens: 4000,
+                model: Some(requested_model.to_string()),
+                temperature: Some(0.3),
+            }).await;
+
+            let response = match response {
+                Ok(r) => r,
+                Err(e) => {
+                    warn!(error = %e, iteration = iteration, "Tool loop LLM call failed");
+                    return Ok(ExecutionChunkRequest {
+                        agent_id: state.agent_id.clone(),
+                        tenant_id: "default".to_string(),
+                        execution_id: fleet_execution_id.to_string(),
+                        chunk_type: "error".to_string(),
+                        timestamp: Utc::now().to_rfc3339(),
+                        data: ExecutionChunkData {
+                            duration_ms: Some(started_at.elapsed().as_millis() as u64),
+                            error: Some(e.to_string()),
+                            model: Some(requested_model.to_string()),
+                            ..Default::default()
+                        },
+                    });
+                }
+            };
+
+            total_in_tokens += response.input_tokens;
+            total_out_tokens += response.output_tokens;
+
+            // If no tool calls, we're done
+            if response.tool_calls.is_empty() || response.finish_reason == "stop" {
+                final_text = response.text;
+                info!(
+                    agent_id = %state.agent_id,
+                    iterations = iteration + 1,
+                    "Tool loop completed"
+                );
+                break;
+            }
+
+            // Add assistant message with tool_calls
+            let assistant_msg = serde_json::json!({
+                "role": "assistant",
+                "content": if response.text.is_empty() { serde_json::Value::Null } else { serde_json::Value::String(response.text.clone()) },
+                "tool_calls": response.tool_calls,
+            });
+            messages.push(assistant_msg);
+
+            // Execute each tool call
+            for tool_call in &response.tool_calls {
+                let tc_id = tool_call.get("id").and_then(|v| v.as_str()).unwrap_or("");
+                let func = tool_call.get("function").cloned().unwrap_or_default();
+                let func_name = func.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                let func_args_str = func.get("arguments").and_then(|v| v.as_str()).unwrap_or("{}");
+                let func_args: serde_json::Value = serde_json::from_str(func_args_str).unwrap_or_default();
+
+                info!(
+                    agent_id = %state.agent_id,
+                    tool = func_name,
+                    args = %func_args,
+                    "Executing tool call"
+                );
+
+                // Emit tool use telemetry
+                let _ = self.ams.emit_execution_chunk(
+                    fleet_execution_id,
+                    &ExecutionChunkRequest {
+                        agent_id: state.agent_id.clone(),
+                        tenant_id: "default".to_string(),
+                        execution_id: fleet_execution_id.to_string(),
+                        chunk_type: "tool_use".to_string(),
+                        timestamp: Utc::now().to_rfc3339(),
+                        data: ExecutionChunkData {
+                            tool_name: Some(func_name.to_string()),
+                            tool_input: Some(func_args.clone()),
+                            ..Default::default()
+                        },
+                    },
+                ).await;
+
+                let tool_result = self.execute_tool(func_name, &func_args, &state.agent_id).await;
+
+                info!(
+                    agent_id = %state.agent_id,
+                    tool = func_name,
+                    result_len = tool_result.len(),
+                    "Tool call completed"
+                );
+
+                // Emit tool result telemetry
+                let _ = self.ams.emit_execution_chunk(
+                    fleet_execution_id,
+                    &ExecutionChunkRequest {
+                        agent_id: state.agent_id.clone(),
+                        tenant_id: "default".to_string(),
+                        execution_id: fleet_execution_id.to_string(),
+                        chunk_type: "tool_result".to_string(),
+                        timestamp: Utc::now().to_rfc3339(),
+                        data: ExecutionChunkData {
+                            tool_name: Some(func_name.to_string()),
+                            tool_output: Some(tool_result.clone()),
+                            ..Default::default()
+                        },
+                    },
+                ).await;
+
+                // Add tool result message
+                messages.push(serde_json::json!({
+                    "role": "tool",
+                    "tool_call_id": tc_id,
+                    "content": tool_result,
+                }));
+            }
+        }
+
+        state.token_count = state.token_count.saturating_add(total_in_tokens + total_out_tokens);
+        state.context_pct = ((state.token_count as f64 / state.max_tokens as f64) * 100.0)
+            .clamp(0.0, 100.0);
+
+        // Emit final output
+        if !final_text.is_empty() {
+            let _ = self.ams.emit_execution_chunk(
+                fleet_execution_id,
+                &ExecutionChunkRequest {
+                    agent_id: state.agent_id.clone(),
+                    tenant_id: "default".to_string(),
+                    execution_id: fleet_execution_id.to_string(),
+                    chunk_type: "output".to_string(),
+                    timestamp: Utc::now().to_rfc3339(),
+                    data: ExecutionChunkData {
+                        content: Some(final_text.clone()),
+                        model: Some(requested_model.to_string()),
+                        ..Default::default()
+                    },
+                },
+            ).await;
+        }
+
+        Ok(ExecutionChunkRequest {
+            agent_id: state.agent_id.clone(),
+            tenant_id: "default".to_string(),
+            execution_id: fleet_execution_id.to_string(),
+            chunk_type: "complete".to_string(),
+            timestamp: Utc::now().to_rfc3339(),
+            data: ExecutionChunkData {
+                tokens_in: Some(total_in_tokens),
+                tokens_out: Some(total_out_tokens),
+                duration_ms: Some(started_at.elapsed().as_millis() as u64),
+                model: Some(requested_model.to_string()),
+                ..Default::default()
+            },
+        })
+    }
+
+    /// Execute a tool call and return the result string.
+    async fn execute_tool(
+        &self,
+        name: &str,
+        args: &serde_json::Value,
+        caller_agent_id: &str,
+    ) -> String {
+        match name {
+            "dispatch_to_worker" => {
+                let worker = args.get("worker_name").and_then(|v| v.as_str()).unwrap_or("");
+                let task = args.get("task").and_then(|v| v.as_str()).unwrap_or("");
+                if worker.is_empty() || task.is_empty() {
+                    return serde_json::json!({"error": "worker_name and task are required"}).to_string();
+                }
+                match self.ams.send_steering_message(worker, task, "task", caller_agent_id).await {
+                    Ok(resp) => serde_json::json!({
+                        "ok": true,
+                        "dispatched_to": worker,
+                        "response": resp,
+                    }).to_string(),
+                    Err(e) => serde_json::json!({
+                        "ok": false,
+                        "error": e.to_string(),
+                    }).to_string(),
                 }
             }
-        };
+            "search_memories" => {
+                let query = args.get("query").and_then(|v| v.as_str()).unwrap_or("");
+                let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(5) as u32;
+                match self.ams.search_memories(query, limit).await {
+                    Ok(memories) => {
+                        let summaries: Vec<serde_json::Value> = memories.iter().map(|m| {
+                            serde_json::json!({
+                                "title": m.title,
+                                "content": &m.content[..m.content.len().min(200)],
+                                "tags": m.tags,
+                            })
+                        }).collect();
+                        serde_json::json!({"results": summaries}).to_string()
+                    }
+                    Err(e) => serde_json::json!({"error": e.to_string()}).to_string(),
+                }
+            }
+            "list_workers" => {
+                match self.ams.list_worker_agents().await {
+                    Ok(agents) => {
+                        let names: Vec<String> = agents.iter().filter_map(|a| {
+                            a.get("agent_name").and_then(|v| v.as_str()).map(|s| s.to_string())
+                        }).collect();
+                        serde_json::json!({"workers": names}).to_string()
+                    }
+                    Err(e) => serde_json::json!({"error": e.to_string()}).to_string(),
+                }
+            }
+            _ => {
+                serde_json::json!({"error": format!("Unknown tool: {}", name)}).to_string()
+            }
+        }
+    }
 
-        self.ams.emit_execution_chunk(&fleet_execution_id, &final_event).await?;
-        state.status = AgentStatus::Idle;
-        state.current_execution = None;
-        Ok(())
+    /// Tool definitions for team-lead agents.
+    fn tl_tool_definitions() -> Vec<serde_json::Value> {
+        vec![
+            serde_json::json!({
+                "type": "function",
+                "function": {
+                    "name": "dispatch_to_worker",
+                    "description": "Dispatch a subtask to a worker agent. The worker will execute the task in a git worktree and produce a PR.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "worker_name": {
+                                "type": "string",
+                                "description": "Name of the worker agent (e.g. backend-engineer, frontend-engineer, coder, researcher, technical-writer)"
+                            },
+                            "task": {
+                                "type": "string",
+                                "description": "Detailed task description for the worker. Include context, requirements, and expected deliverables."
+                            }
+                        },
+                        "required": ["worker_name", "task"]
+                    }
+                }
+            }),
+            serde_json::json!({
+                "type": "function",
+                "function": {
+                    "name": "search_memories",
+                    "description": "Search AMS memories for relevant domain knowledge, past decisions, and context.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "query": {
+                                "type": "string",
+                                "description": "Search query to find relevant memories"
+                            },
+                            "limit": {
+                                "type": "integer",
+                                "description": "Max results to return (default 5)",
+                                "default": 5
+                            }
+                        },
+                        "required": ["query"]
+                    }
+                }
+            }),
+            serde_json::json!({
+                "type": "function",
+                "function": {
+                    "name": "list_workers",
+                    "description": "List all available worker agents that can be dispatched to.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {}
+                    }
+                }
+            }),
+        ]
     }
 
     async fn generate_response(&self, prompt: &str) -> Result<GenerationResult> {

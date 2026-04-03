@@ -1,0 +1,13 @@
+FROM ubuntu:24.04
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY target/release/abot /usr/local/bin/abot
+COPY config ./config
+COPY hands ./hands
+
+CMD ["abot", "--config", "config/abot.toml"]
