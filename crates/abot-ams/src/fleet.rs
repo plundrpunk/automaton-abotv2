@@ -68,3 +68,75 @@ pub struct ExecutionChunkResponse {
     #[serde(rename = "executionId", alias = "execution_id")]
     pub execution_id: String,
 }
+
+// ---------------------------------------------------------------------------
+// Fleet heartbeat + registration (matches ams-client.ts:131/147 and
+// app/api/fleet.py:384/432 server contract).
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct FleetHeartbeatMetrics {
+    pub memory_usage_mb: u64,
+    pub cpu_percent: u32,
+    pub uptime_seconds: u64,
+    #[serde(default)]
+    pub pending_tasks: u32,
+    #[serde(default)]
+    pub context_usage_percent: f32,
+}
+
+#[derive(Debug, Clone, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct FleetHeartbeatUsage {
+    #[serde(default)]
+    pub tokens_in_since_last_heartbeat: u64,
+    #[serde(default)]
+    pub tokens_out_since_last_heartbeat: u64,
+    #[serde(default)]
+    pub executions_since_last_heartbeat: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FleetHeartbeatRequest {
+    pub agent_id: String,
+    pub tenant_id: String,
+    pub container_id: String,
+    pub timestamp: String,
+    pub status: String,
+    pub metrics: FleetHeartbeatMetrics,
+    pub usage: FleetHeartbeatUsage,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct FleetHeartbeatResponse {
+    #[serde(default)]
+    pub ok: bool,
+    #[serde(default)]
+    pub received: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FleetRegisterAgentRequest {
+    pub agent_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tenant_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub instance_id: Option<String>,
+    #[serde(default)]
+    pub metadata: serde_json::Value,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct FleetRegisterAgentResponse {
+    #[serde(default)]
+    pub ok: bool,
+    #[serde(default)]
+    pub agent_id: Option<String>,
+    #[serde(default)]
+    pub registered_at: Option<String>,
+}

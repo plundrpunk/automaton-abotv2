@@ -7,9 +7,9 @@ use uuid::Uuid;
 use crate::config::AbotConfig;
 use crate::hand::{LoadedHand, load_hand};
 use abot_ams::client::{AmsClient, AmsConfig, SteeringMessage};
-use abot_ams::fleet::{ExecutionChunkData, ExecutionChunkRequest, RegisterExecutionRequest};
+use abot_ams::fleet::{ExecutionChunkData, ExecutionChunkRequest, FleetRegisterAgentRequest, RegisterExecutionRequest};
 use abot_ams::llm::{CompletionRequest, ToolCompletionRequest};
-use abot_ams::warden::{BirthRequest, Directive};
+use abot_ams::warden::{AmsGrants, BirthRequest, Directive};
 use abot_telemetry::heartbeat::{HeartbeatReporter, RuntimeState as TelemetryState};
 use abot_llm::KiloBridge;
 use abot_llm::kilo::KiloMode;
@@ -24,6 +24,7 @@ pub struct Runtime {
     heartbeat: HeartbeatReporter,
     shutdown_rx: mpsc::Receiver<()>,
     hand: Option<LoadedHand>,
+    grants: Option<AmsGrants>,
 }
 
 /// Current runtime state reported to AMS via heartbeat.
@@ -88,6 +89,7 @@ impl Runtime {
             heartbeat,
             shutdown_rx,
             hand,
+            grants: None,
         })
     }
 
@@ -123,7 +125,7 @@ impl Runtime {
             metadata: birth_metadata,
         }).await?;
 
-        // Log AMS-granted operating limits
+        // Store and log AMS-granted operating limits
         if let Some(grants) = &birth_response.grants {
             info!(
                 agent_id = %self.config.agent.id,
@@ -135,6 +137,7 @@ impl Runtime {
                 critical_threshold = grants.critical_threshold,
                 "AMS grants received — operating limits set by server"
             );
+            self.grants = Some(grants.clone());
         } else {
             warn!(
                 agent_id = %self.config.agent.id,
@@ -147,6 +150,38 @@ impl Runtime {
             continuation = ?birth_response.continuation,
             "Birth ritual complete"
         );
+
+        // === FLEET REGISTRATION ===
+        // Idempotent one-time registration into the in-memory
+        // fleet_registered_agents map so `/api/fleet/status` and the
+        // dashboards see this container. Fail-open: fleet is observability,
+        // not lifecycle, so we never propagate errors here.
+        let fleet_metadata = serde_json::json!({
+            "version": "3.0.0",
+            "runtime": "rust",
+            "sandbox": self.config.sandbox.engine,
+            "container_id": self.heartbeat.container_id(),
+        });
+        let fleet_register_req = FleetRegisterAgentRequest {
+            agent_id: self.config.agent.id.clone(),
+            tenant_id: Some(self.heartbeat.tenant_id().to_string()),
+            agent_name: Some(self.config.agent.name.clone()),
+            instance_id: Some(self.heartbeat.container_id().to_string()),
+            metadata: fleet_metadata,
+        };
+        match self.ams.fleet_register_agent(&fleet_register_req).await {
+            Ok(resp) => info!(
+                agent_id = %self.config.agent.id,
+                container_id = %self.heartbeat.container_id(),
+                registered_at = ?resp.registered_at,
+                "Fleet registration complete"
+            ),
+            Err(e) => warn!(
+                agent_id = %self.config.agent.id,
+                error = %e,
+                "Fleet registration failed — continuing (heartbeat will retry via /api/fleet/heartbeat upsert)"
+            ),
+        }
 
         // If we got a continuation, load it as our initial task context
         let mut state = RuntimeState {
@@ -302,15 +337,17 @@ impl Runtime {
         let started_at = std::time::Instant::now();
         let system_prompt = self.hand.as_ref().and_then(|hand| hand.system_prompt.clone());
 
-        // Check if this agent has tools enabled (team-lead class)
-        // Prime/orchestrator and team-leads both need the tool loop so they
-        // can dispatch, wait, and synthesize.
-        let has_tools = self.hand.as_ref()
-            .map(|h| matches!(
-                h.manifest.hand.archetype.as_str(),
-                "team-lead" | "orchestrator"
-            ))
+        // Tools are enabled either by archetype (team-leads and orchestrators
+        // always get the dispatch/wait/synthesize loop) or by AMS birth grants
+        // (enable_tools=true opts any agent into the tool loop).
+        let archetype = self.hand.as_ref()
+            .map(|h| h.manifest.hand.archetype.as_str())
+            .unwrap_or("");
+        let archetype_enables_tools = matches!(archetype, "team-lead" | "orchestrator");
+        let grants_enable_tools = self.grants.as_ref()
+            .map(|g| g.enable_tools)
             .unwrap_or(false);
+        let has_tools = archetype_enables_tools || grants_enable_tools;
 
         let final_event = if has_tools {
             self.run_tool_loop(
@@ -318,7 +355,7 @@ impl Runtime {
                 system_prompt.as_deref(), started_at,
             ).await
         } else {
-            // Non-TL agents: single-shot response (original behavior)
+            // Non-tooled agents: single-shot response (original behavior)
             self.run_single_shot(
                 state, &fleet_execution_id, &prompt, &requested_model,
                 started_at,
@@ -405,7 +442,7 @@ impl Runtime {
         }
     }
 
-    /// Tool-use loop for team-lead agents.
+    /// Tool-use loop for agents with tools enabled (TLs, Prime, etc).
     async fn run_tool_loop(
         &self,
         state: &mut RuntimeState,
@@ -415,7 +452,13 @@ impl Runtime {
         system_prompt: Option<&str>,
         started_at: std::time::Instant,
     ) -> Result<ExecutionChunkRequest> {
-        let tools = Self::tl_tool_definitions();
+        let archetype = self.hand.as_ref()
+            .map(|h| h.manifest.hand.archetype.as_str())
+            .unwrap_or("");
+        let tools = match archetype {
+            "team-lead" => Self::tl_tool_definitions(),
+            _ => Self::orchestrator_tool_definitions(),
+        };
 
         let mut messages: Vec<serde_json::Value> = Vec::new();
         if let Some(sys) = system_prompt {
@@ -706,6 +749,59 @@ impl Runtime {
                     tokio::time::sleep(poll_interval).await;
                 }
             }
+            "dispatch_to_tl" => {
+                let tl_name = args.get("tl_name").and_then(|v| v.as_str()).unwrap_or("");
+                let task = args.get("task").and_then(|v| v.as_str()).unwrap_or("");
+                let priority = args.get("priority").and_then(|v| v.as_str()).unwrap_or("normal");
+                if tl_name.is_empty() || task.is_empty() {
+                    return serde_json::json!({"error": "tl_name and task are required"}).to_string();
+                }
+                match self.ams.send_steering_message(tl_name, task, "task", caller_agent_id).await {
+                    Ok(resp) => serde_json::json!({
+                        "ok": true,
+                        "dispatched_to": tl_name,
+                        "priority": priority,
+                        "response": resp,
+                    }).to_string(),
+                    Err(e) => serde_json::json!({
+                        "ok": false,
+                        "error": e.to_string(),
+                    }).to_string(),
+                }
+            }
+            "list_tl_agents" => {
+                match self.ams.list_worker_agents().await {
+                    Ok(agents) => {
+                        let tls: Vec<serde_json::Value> = agents.iter().filter_map(|a| {
+                            // /api/v1/agents returns `agent_id` (canonical slug).
+                            let name = a.get("agent_id").and_then(|v| v.as_str())?;
+                            if name.starts_with("tl-") {
+                                Some(serde_json::json!({
+                                    "name": name,
+                                    "trust_tier": a.get("trust_tier").and_then(|v| v.as_str()).unwrap_or("unknown"),
+                                    "automata_count": a.get("automata_count").and_then(|v| v.as_u64()).unwrap_or(0),
+                                }))
+                            } else {
+                                None
+                            }
+                        }).collect();
+                        serde_json::json!({"team_leads": tls, "count": tls.len()}).to_string()
+                    }
+                    Err(e) => serde_json::json!({"error": e.to_string()}).to_string(),
+                }
+            }
+            "create_goal_task" => {
+                let title = args.get("title").and_then(|v| v.as_str()).unwrap_or("");
+                let description = args.get("description").and_then(|v| v.as_str()).unwrap_or("");
+                let priority = args.get("priority").and_then(|v| v.as_str()).unwrap_or("normal");
+                if title.is_empty() {
+                    return serde_json::json!({"error": "title is required"}).to_string();
+                }
+                match self.ams.create_goal_task(title, description, priority, caller_agent_id).await {
+                    Ok(resp) => resp,
+                    Err(e) => serde_json::json!({"error": e.to_string()}).to_string(),
+                }
+            }
             "search_memories" => {
                 let query = args.get("query").and_then(|v| v.as_str()).unwrap_or("");
                 let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(5) as u32;
@@ -726,10 +822,17 @@ impl Runtime {
             "list_workers" => {
                 match self.ams.list_worker_agents().await {
                     Ok(agents) => {
+                        // Exclude tl-* and memory-curator — those are TL daemons,
+                        // list_workers should return the specialist fleet.
                         let names: Vec<String> = agents.iter().filter_map(|a| {
-                            a.get("agent_name").and_then(|v| v.as_str()).map(|s| s.to_string())
+                            let id = a.get("agent_id").and_then(|v| v.as_str())?;
+                            if id.starts_with("tl-") || id == "memory-curator" {
+                                None
+                            } else {
+                                Some(id.to_string())
+                            }
                         }).collect();
-                        serde_json::json!({"workers": names}).to_string()
+                        serde_json::json!({"workers": names, "count": names.len()}).to_string()
                     }
                     Err(e) => serde_json::json!({"error": e.to_string()}).to_string(),
                 }
@@ -794,6 +897,98 @@ impl Runtime {
                     "parameters": {
                         "type": "object",
                         "properties": {}
+                    }
+                }
+            }),
+        ]
+    }
+
+    /// Tool definitions for orchestrator agents (Prime, etc).
+    /// These dispatch to TLs rather than workers.
+    fn orchestrator_tool_definitions() -> Vec<serde_json::Value> {
+        vec![
+            serde_json::json!({
+                "type": "function",
+                "function": {
+                    "name": "dispatch_to_tl",
+                    "description": "Dispatch a task to a Team Lead agent. The TL will route it to appropriate specialist workers in their domain. Use this to delegate work — you orchestrate, they execute.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "tl_name": {
+                                "type": "string",
+                                "description": "Team Lead agent name (e.g. tl-engineering, tl-marketing, tl-product, tl-design, tl-sales, tl-gamedev, tl-academic, tl-paid-media, tl-project-mgmt, tl-spatial, tl-support, tl-testing, tl-specialized)"
+                            },
+                            "task": {
+                                "type": "string",
+                                "description": "Detailed task description. Include context, requirements, and expected deliverables."
+                            },
+                            "priority": {
+                                "type": "string",
+                                "enum": ["low", "normal", "high", "urgent"],
+                                "description": "Task priority level (default: normal)"
+                            }
+                        },
+                        "required": ["tl_name", "task"]
+                    }
+                }
+            }),
+            serde_json::json!({
+                "type": "function",
+                "function": {
+                    "name": "list_tl_agents",
+                    "description": "List all available Team Lead agents and their current status.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {}
+                    }
+                }
+            }),
+            serde_json::json!({
+                "type": "function",
+                "function": {
+                    "name": "create_goal_task",
+                    "description": "Create a goal/task for DLPFC to route via NEXUS. Use this for complex multi-domain tasks that need intelligent routing rather than direct TL dispatch.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "title": {
+                                "type": "string",
+                                "description": "Short task title"
+                            },
+                            "description": {
+                                "type": "string",
+                                "description": "Detailed task description with context and requirements"
+                            },
+                            "priority": {
+                                "type": "string",
+                                "enum": ["low", "normal", "high", "urgent"],
+                                "description": "Task priority (default: normal)"
+                            }
+                        },
+                        "required": ["title"]
+                    }
+                }
+            }),
+            serde_json::json!({
+                "type": "function",
+                "function": {
+                    "name": "search_memories",
+                    "description": "Search AMS memories for relevant domain knowledge, past decisions, and context.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "query": {
+                                "type": "string",
+                                "description": "Search query to find relevant memories"
+                            },
+                            "limit": {
+                                "type": "integer",
+                                "description": "Max results to return (default 5)",
+                                "default": 5
+                            }
+                        },
+                        "required": ["query"]
                     }
                 }
             }),

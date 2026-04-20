@@ -8,6 +8,10 @@ use urlencoding::encode;
 use crate::fleet::{
     ExecutionChunkRequest,
     ExecutionChunkResponse,
+    FleetHeartbeatRequest,
+    FleetHeartbeatResponse,
+    FleetRegisterAgentRequest,
+    FleetRegisterAgentResponse,
     RegisterExecutionRequest,
     RegisterExecutionResponse,
 };
@@ -248,13 +252,85 @@ impl AmsClient {
     }
 
     /// List agents with v3-body capability.
+    ///
+    /// AMS returns a wrapper object `{"agents": [...], "count": N}` from
+    /// `/api/v1/agents`. We unwrap that here so callers keep getting a flat
+    /// array of agent records. Default server limit is 50; we explicitly ask
+    /// for 500 to cover the full hydrated fleet.
     pub async fn list_worker_agents(&self) -> Result<Vec<serde_json::Value>> {
-        let url = format!("{}/api/agents", self.base_url);
-        let resp = self.request(Method::GET, url)
+        let url = format!("{}/api/v1/agents?limit=500", self.base_url);
+        let resp: serde_json::Value = self.request(Method::GET, url)
             .send()
             .await?
             .error_for_status()?
-            .json::<Vec<serde_json::Value>>()
+            .json()
+            .await?;
+        let agents = resp
+            .get("agents")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+        Ok(agents)
+    }
+
+    /// Create a goal task for DLPFC to route via NEXUS.
+    pub async fn create_goal_task(
+        &self,
+        title: &str,
+        description: &str,
+        priority: &str,
+        creator_agent_id: &str,
+    ) -> Result<String> {
+        let url = format!("{}/api/v1/goals", self.base_url);
+        let payload = serde_json::json!({
+            "title": title,
+            "description": description,
+            "priority": priority,
+            "created_by": creator_agent_id,
+            "source": "abot-orchestrator",
+        });
+        let resp = self.request(Method::POST, url)
+            .json(&payload)
+            .send()
+            .await?
+            .error_for_status()?
+            .text()
+            .await?;
+        Ok(resp)
+    }
+
+    /// Fleet heartbeat — populates the in-memory container_heartbeats +
+    /// fleet_registered_agents maps in `app/api/fleet.py`. This is what
+    /// surfaces agents on `/api/fleet/status`.
+    pub async fn fleet_heartbeat(
+        &self,
+        payload: &FleetHeartbeatRequest,
+    ) -> Result<FleetHeartbeatResponse> {
+        let url = format!("{}/api/fleet/heartbeat", self.base_url);
+        debug!(url = %url, agent_id = %payload.agent_id, "Sending fleet heartbeat");
+        let resp = self.request(Method::POST, url)
+            .json(payload)
+            .send()
+            .await?
+            .error_for_status()?
+            .json::<FleetHeartbeatResponse>()
+            .await?;
+        Ok(resp)
+    }
+
+    /// Fleet agent registration — idempotent one-time call at birth.
+    pub async fn fleet_register_agent(
+        &self,
+        payload: &FleetRegisterAgentRequest,
+    ) -> Result<FleetRegisterAgentResponse> {
+        let url = format!("{}/api/fleet/agents", self.base_url);
+        debug!(url = %url, agent_id = %payload.agent_id, "Registering fleet agent");
+        let resp = self.request(Method::POST, url)
+            .json(payload)
+            .send()
+            .await?
+            .error_for_status()?
+            .json::<FleetRegisterAgentResponse>()
             .await?;
         Ok(resp)
     }
