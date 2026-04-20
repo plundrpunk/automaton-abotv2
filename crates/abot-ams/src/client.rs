@@ -259,6 +259,25 @@ impl AmsClient {
         Ok(resp)
     }
 
+    /// Fetch an observatory execution by id. Used by the orchestrator
+    /// dispatch_and_wait loop to block on a worker's terminal state.
+    /// Returns the parsed JSON body including `status`, `output`, and
+    /// `duration_ms` when the row exists; caller retries transient 404s.
+    pub async fn get_execution(&self, execution_id: &str) -> Result<serde_json::Value> {
+        let url = format!(
+            "{}/observatory/executions/{}",
+            self.base_url,
+            urlencoding::encode(execution_id)
+        );
+        let resp = self.request(Method::GET, url)
+            .send()
+            .await?
+            .error_for_status()?
+            .json::<serde_json::Value>()
+            .await?;
+        Ok(resp)
+    }
+
     /// Health check.
     pub async fn health(&self) -> Result<bool> {
         let url = format!("{}/health", self.base_url);

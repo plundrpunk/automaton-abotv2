@@ -303,8 +303,13 @@ impl Runtime {
         let system_prompt = self.hand.as_ref().and_then(|hand| hand.system_prompt.clone());
 
         // Check if this agent has tools enabled (team-lead class)
+        // Prime/orchestrator and team-leads both need the tool loop so they
+        // can dispatch, wait, and synthesize.
         let has_tools = self.hand.as_ref()
-            .map(|h| h.manifest.hand.archetype == "team-lead")
+            .map(|h| matches!(
+                h.manifest.hand.archetype.as_str(),
+                "team-lead" | "orchestrator"
+            ))
             .unwrap_or(false);
 
         let final_event = if has_tools {
@@ -569,6 +574,36 @@ impl Runtime {
                     },
                 },
             ).await;
+
+            // Persist the synthesized orchestration result as an episodic
+            // memory on the caller. Makes the dashboard "recent memories"
+            // panel show the actual fan-in output, and lets subsequent
+            // hybrid searches find it next turn.
+            let mem = abot_ams::memory::CreateMemoryRequest {
+                title: format!("{}: orchestration result", state.agent_id),
+                content: final_text.clone(),
+                memory_tier: "episodic".to_string(),
+                entity_type: "event".to_string(),
+                importance: 0.7,
+                tags: vec![
+                    "orchestration".to_string(),
+                    "fan-in".to_string(),
+                    format!("agent:{}", state.agent_id),
+                    format!("exec:{}", fleet_execution_id),
+                ],
+                metadata: Some(serde_json::json!({
+                    "source_agent": state.agent_id,
+                    "fleet_execution_id": fleet_execution_id,
+                })),
+            };
+            if let Err(e) = self.ams.create_memory(mem).await {
+                warn!(
+                    agent_id = %state.agent_id,
+                    execution_id = %fleet_execution_id,
+                    error = %e,
+                    "Failed to persist orchestration result as memory"
+                );
+            }
         }
 
         Ok(ExecutionChunkRequest {
@@ -598,19 +633,77 @@ impl Runtime {
             "dispatch_to_worker" => {
                 let worker = args.get("worker_name").and_then(|v| v.as_str()).unwrap_or("");
                 let task = args.get("task").and_then(|v| v.as_str()).unwrap_or("");
+                let timeout_secs = args.get("timeout_secs").and_then(|v| v.as_u64()).unwrap_or(180);
                 if worker.is_empty() || task.is_empty() {
                     return serde_json::json!({"error": "worker_name and task are required"}).to_string();
                 }
-                match self.ams.send_steering_message(worker, task, "task", caller_agent_id).await {
-                    Ok(resp) => serde_json::json!({
-                        "ok": true,
-                        "dispatched_to": worker,
-                        "response": resp,
+
+                // Step 1: dispatch. AMS now returns execution_id when
+                // spawn_triggered=true (paired with agent-memory-backend
+                // commit fdcf223).
+                let dispatch = match self.ams.send_steering_message(worker, task, "task", caller_agent_id).await {
+                    Ok(v) => v,
+                    Err(e) => return serde_json::json!({
+                        "ok": false, "error": format!("dispatch: {}", e),
                     }).to_string(),
-                    Err(e) => serde_json::json!({
-                        "ok": false,
-                        "error": e.to_string(),
-                    }).to_string(),
+                };
+
+                let exec_id = match dispatch.get("execution_id").and_then(|v| v.as_str()) {
+                    Some(s) if !s.is_empty() => s.to_string(),
+                    _ => {
+                        // Worker was already alive; message just queued.
+                        // Nothing fresh to wait on.
+                        return serde_json::json!({
+                            "ok": true,
+                            "dispatched_to": worker,
+                            "status": "enqueued_only",
+                            "note": "worker was alive; message queued but no new execution",
+                            "response": dispatch,
+                        }).to_string();
+                    }
+                };
+
+                // Step 2: poll the observatory until terminal, then return
+                // the output so the orchestrator can synthesize.
+                let deadline = std::time::Instant::now()
+                    + std::time::Duration::from_secs(timeout_secs);
+                let poll_interval = std::time::Duration::from_secs(2);
+
+                loop {
+                    if std::time::Instant::now() > deadline {
+                        return serde_json::json!({
+                            "ok": false,
+                            "dispatched_to": worker,
+                            "execution_id": exec_id,
+                            "status": "timeout",
+                            "timeout_secs": timeout_secs,
+                        }).to_string();
+                    }
+                    match self.ams.get_execution(&exec_id).await {
+                        Ok(exec) => {
+                            let status = exec.get("status")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("unknown");
+                            if matches!(status, "completed" | "failed" | "killed") {
+                                let output = exec.get("output").cloned()
+                                    .unwrap_or(serde_json::Value::Null);
+                                return serde_json::json!({
+                                    "ok": status == "completed",
+                                    "dispatched_to": worker,
+                                    "execution_id": exec_id,
+                                    "status": status,
+                                    "output": output,
+                                    "duration_ms": exec.get("duration_ms"),
+                                }).to_string();
+                            }
+                        }
+                        Err(e) => {
+                            // 404s are expected for the first few polls
+                            // while the background spawn writes the row.
+                            tracing::debug!(exec_id = %exec_id, err = %e, "get_execution transient");
+                        }
+                    }
+                    tokio::time::sleep(poll_interval).await;
                 }
             }
             "search_memories" => {
