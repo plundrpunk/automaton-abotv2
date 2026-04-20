@@ -806,12 +806,21 @@ impl Runtime {
                 let query = args.get("query").and_then(|v| v.as_str()).unwrap_or("");
                 let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(5) as u32;
                 match self.ams.search_memories(query, limit).await {
-                    Ok(memories) => {
-                        let summaries: Vec<serde_json::Value> = memories.iter().map(|m| {
+                    Ok(results) => {
+                        let summaries: Vec<serde_json::Value> = results.iter().map(|r| {
+                            let memory = r.get("memory").cloned().unwrap_or(serde_json::Value::Null);
+                            let file_path = memory.get("file_path")
+                                .and_then(|v| v.as_str()).unwrap_or("").to_string();
+                            let tags = memory.get("tags").cloned().unwrap_or(serde_json::Value::Array(vec![]));
+                            let snippet = r.get("content_snippet")
+                                .and_then(|v| v.as_str()).unwrap_or("").to_string();
+                            let score = r.get("relevance_score")
+                                .and_then(|v| v.as_f64()).unwrap_or(0.0);
                             serde_json::json!({
-                                "title": m.title,
-                                "content": &m.content[..m.content.len().min(200)],
-                                "tags": m.tags,
+                                "file_path": file_path,
+                                "tags": tags,
+                                "snippet": if snippet.len() > 200 { snippet[..200].to_string() } else { snippet },
+                                "score": score,
                             })
                         }).collect();
                         serde_json::json!({"results": summaries}).to_string()

@@ -172,25 +172,35 @@ impl AmsClient {
     }
 
     /// Create an episodic memory in AMS.
-    pub async fn create_memory(&self, memory: crate::memory::CreateMemoryRequest) -> Result<crate::memory::MemoryResponse> {
-        let url = format!("{}/api/v1/memories", self.base_url);
+    ///
+    /// Returns the raw JSON so the caller is insulated from the
+    /// MemoryResponse schema drifting on the server side. AMS requires the
+    /// trailing slash; without it the server responds 307 and reqwest drops
+    /// the request body before following.
+    pub async fn create_memory(&self, memory: crate::memory::CreateMemoryRequest) -> Result<serde_json::Value> {
+        let url = format!("{}/api/v1/memories/", self.base_url);
 
         let resp = self.request(Method::POST, url)
             .json(&memory)
             .send()
             .await?
             .error_for_status()?
-            .json()
+            .json::<serde_json::Value>()
             .await?;
 
         Ok(resp)
     }
 
     /// Search memories via hybrid search.
-    pub async fn search_memories(&self, query: &str, limit: u32) -> Result<Vec<crate::memory::MemoryResponse>> {
-        let url = format!("{}/api/v1/memories/search", self.base_url);
+    ///
+    /// Returns the raw `results` array (each element has `memory`,
+    /// `relevance_score`, `content_snippet`) so the caller doesn't have to
+    /// track server schema drift. AMS requires the trailing slash on search
+    /// as well.
+    pub async fn search_memories(&self, query: &str, limit: u32) -> Result<Vec<serde_json::Value>> {
+        let url = format!("{}/api/v1/memories/search/", self.base_url);
 
-        let resp = self.request(Method::POST, url)
+        let resp: serde_json::Value = self.request(Method::POST, url)
             .json(&serde_json::json!({
                 "query": query,
                 "limit": limit,
@@ -201,7 +211,12 @@ impl AmsClient {
             .json()
             .await?;
 
-        Ok(resp)
+        let results = resp
+            .get("results")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+        Ok(results)
     }
 
 
