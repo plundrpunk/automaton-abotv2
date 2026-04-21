@@ -349,10 +349,70 @@ impl Runtime {
             .unwrap_or(false);
         let has_tools = archetype_enables_tools || grants_enable_tools;
 
+        // If this activation was spawned by a parent orchestrator's
+        // dispatch_to_tl, capture the rollup breadcrumbs so the tool loop
+        // can ding the parent when it finishes. For msg_type == "rollup"
+        // arriving at an orchestrator, we're the terminus (rollup_target
+        // stays None) and the prompt is augmented instead so the LLM
+        // knows to synthesize the TL's result for the user.
+        let incoming_meta = message.metadata.as_ref();
+        // chat_session_id rides on any msg_type originating from a
+        // dashboard-initiated turn. We pluck it once here and thread it
+        // through run_tool_loop; on completion the runtime posts its
+        // synthesis back to that dashboard chat session.
+        let chat_session_id_owned: Option<String> = incoming_meta
+            .and_then(|m| m.get("chat_session_id"))
+            .and_then(|v| v.as_str())
+            .map(str::to_string);
+        let (rollup_target_owned, prompt) = match message.msg_type.as_str() {
+            "task" => {
+                let parent = incoming_meta
+                    .and_then(|m| m.get("parent_agent_id"))
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string);
+                let parent_exec = incoming_meta
+                    .and_then(|m| m.get("parent_exec_id"))
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string);
+                let target = match (parent, parent_exec) {
+                    (Some(a), Some(e)) => Some((a, e)),
+                    _ => None,
+                };
+                (target, prompt)
+            }
+            "rollup" => {
+                let child_agent = incoming_meta
+                    .and_then(|m| m.get("child_agent_id"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(message.sender.as_str())
+                    .to_string();
+                let child_exec = incoming_meta
+                    .and_then(|m| m.get("child_exec_id"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let memory_id = incoming_meta
+                    .and_then(|m| m.get("memory_id"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let augmented = format!(
+                    "[rollup from team-lead {child_agent}, exec {child_exec}, memory {memory_id}]\n\n{prompt}\n\nSynthesize this result for the user."
+                );
+                (None, augmented)
+            }
+            _ => (None, prompt),
+        };
+        let rollup_target = rollup_target_owned
+            .as_ref()
+            .map(|(a, e)| (a.as_str(), e.as_str()));
+
+        let chat_session_id = chat_session_id_owned.as_deref();
         let final_event = if has_tools {
             self.run_tool_loop(
                 state, &fleet_execution_id, &prompt, &requested_model,
-                system_prompt.as_deref(), started_at,
+                system_prompt.as_deref(), started_at, rollup_target,
+                chat_session_id,
             ).await
         } else {
             // Non-tooled agents: single-shot response (original behavior)
@@ -443,6 +503,26 @@ impl Runtime {
     }
 
     /// Tool-use loop for agents with tools enabled (TLs, Prime, etc).
+    ///
+    /// `rollup_target`, when `Some((parent_agent_id, parent_exec_id))`,
+    /// means this activation was spawned by a higher-level orchestrator's
+    /// `dispatch_to_tl`. On completion, after persisting the
+    /// orchestration-result memory, we POST a `rollup` steering back to
+    /// the parent so it gets a ding instead of having to poll.
+    ///
+    /// `chat_session_id`, when `Some`, means this activation ultimately
+    /// traces back to a dashboard chat turn. After the tool loop ends we
+    /// also POST the final assistant text to that chat session so the
+    /// user sees the response in the conversation that initiated the
+    /// work — even when this turn is a rollup-triggered synthesis
+    /// rather than the original user-facing turn.
+    ///
+    /// TODO(fan-in-aware): today this is "next-idle" - the rollup lands in
+    /// the parent's warden queue and is consumed on its next message-poll
+    /// tick. Eventually the parent's tool loop should track outstanding
+    /// child exec_ids and fast-path-unblock a waiting dispatch_and_wait
+    /// when a matching rollup arrives, instead of the dispatch_to_worker
+    /// polling path we have today.
     async fn run_tool_loop(
         &self,
         state: &mut RuntimeState,
@@ -451,12 +531,39 @@ impl Runtime {
         requested_model: &str,
         system_prompt: Option<&str>,
         started_at: std::time::Instant,
+        rollup_target: Option<(&str, &str)>,
+        chat_session_id: Option<&str>,
     ) -> Result<ExecutionChunkRequest> {
         let archetype = self.hand.as_ref()
             .map(|h| h.manifest.hand.archetype.as_str())
             .unwrap_or("");
         let tools = match archetype {
-            "team-lead" => Self::tl_tool_definitions(),
+            "team-lead" => {
+                let prefix = Self::tl_specialist_prefix(&state.agent_id);
+                let specialists = match self
+                    .ams
+                    .list_worker_agents_filtered(prefix.as_deref())
+                    .await
+                {
+                    Ok(list) => list,
+                    Err(e) => {
+                        warn!(
+                            agent_id = %state.agent_id,
+                            prefix = ?prefix,
+                            error = %e,
+                            "Failed to load domain specialist roster; falling back to empty list"
+                        );
+                        Vec::new()
+                    }
+                };
+                info!(
+                    agent_id = %state.agent_id,
+                    prefix = ?prefix,
+                    specialist_count = specialists.len(),
+                    "Loaded domain specialist roster for TL tool schema"
+                );
+                Self::tl_tool_definitions(&specialists)
+            }
             _ => Self::orchestrator_tool_definitions(),
         };
 
@@ -561,7 +668,7 @@ impl Runtime {
                     },
                 ).await;
 
-                let tool_result = self.execute_tool(func_name, &func_args, &state.agent_id).await;
+                let tool_result = self.execute_tool(func_name, &func_args, &state.agent_id, Some(fleet_execution_id), chat_session_id).await;
 
                 info!(
                     agent_id = %state.agent_id,
@@ -639,13 +746,102 @@ impl Runtime {
                     "fleet_execution_id": fleet_execution_id,
                 })),
             };
-            if let Err(e) = self.ams.create_memory(mem).await {
-                warn!(
-                    agent_id = %state.agent_id,
-                    execution_id = %fleet_execution_id,
-                    error = %e,
-                    "Failed to persist orchestration result as memory"
-                );
+            let memory_id = match self.ams.create_memory(mem).await {
+                Ok(resp) => resp
+                    .get("id")
+                    .or_else(|| resp.get("memory_id"))
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string()),
+                Err(e) => {
+                    warn!(
+                        agent_id = %state.agent_id,
+                        execution_id = %fleet_execution_id,
+                        error = %e,
+                        "Failed to persist orchestration result as memory"
+                    );
+                    None
+                }
+            };
+
+            // Roll the result back up to the orchestrator that dispatched
+            // us. Additive to the memory write: memory is the durable audit
+            // record, this steering is the live delivery so the parent
+            // gets a ding on next-idle rather than having to poll.
+            if let Some((parent_agent, parent_exec)) = rollup_target {
+                let summary: String = if final_text.chars().count() > 500 {
+                    let mut t: String = final_text.chars().take(500).collect();
+                    t.push_str("...");
+                    t
+                } else {
+                    final_text.clone()
+                };
+                let mut rollup_meta = serde_json::json!({
+                    "parent_exec_id": parent_exec,
+                    "child_exec_id": fleet_execution_id,
+                    "child_agent_id": state.agent_id,
+                    "memory_id": memory_id.clone().unwrap_or_default(),
+                });
+                // Thread the dashboard chat session all the way back up so
+                // the parent's rollup-triggered synthesis turn can post
+                // its reply into the same conversation.
+                if let Some(cs) = chat_session_id {
+                    rollup_meta["chat_session_id"] = serde_json::Value::String(cs.to_string());
+                }
+                if let Err(e) = self.ams.send_steering_message(
+                    parent_agent,
+                    &summary,
+                    "rollup",
+                    &state.agent_id,
+                    Some(&rollup_meta),
+                ).await {
+                    warn!(
+                        agent_id = %state.agent_id,
+                        parent_agent = %parent_agent,
+                        parent_exec = %parent_exec,
+                        error = %e,
+                        "Failed to emit rollup steering; parent will rely on memory read",
+                    );
+                } else {
+                    info!(
+                        agent_id = %state.agent_id,
+                        parent_agent = %parent_agent,
+                        parent_exec = %parent_exec,
+                        memory_id = ?memory_id,
+                        "Rolled up orchestration result to parent",
+                    );
+                }
+            }
+        }
+
+        // Dashboard writeback: if this activation came from a dashboard
+        // chat turn (either the original user message or a rollup that
+        // inherited the chat_session_id), post the final synthesized
+        // assistant text into that chat session so it shows up in the
+        // conversation the user started. Best-effort — a failure here
+        // doesn't break the tool-loop result.
+        if let Some(cs) = chat_session_id {
+            if !final_text.trim().is_empty() {
+                if let Err(e) = self.ams.post_chat_message(
+                    cs,
+                    &final_text,
+                    &state.agent_id,
+                    Some(requested_model),
+                ).await {
+                    warn!(
+                        agent_id = %state.agent_id,
+                        execution_id = %fleet_execution_id,
+                        chat_session_id = %cs,
+                        error = %e,
+                        "Failed to post synthesis back to dashboard chat session",
+                    );
+                } else {
+                    info!(
+                        agent_id = %state.agent_id,
+                        execution_id = %fleet_execution_id,
+                        chat_session_id = %cs,
+                        "Posted synthesis to dashboard chat session",
+                    );
+                }
             }
         }
 
@@ -666,11 +862,23 @@ impl Runtime {
     }
 
     /// Execute a tool call and return the result string.
+    ///
+    /// `caller_exec_id` is this agent's current fleet execution id. Tools
+    /// that dispatch work downstream (e.g. `dispatch_to_tl`) include it in
+    /// their steering-message metadata so the recipient knows who to roll
+    /// back up to.
+    ///
+    /// `chat_session_id`, when `Some`, is the dashboard chat session that
+    /// originated this turn. Dispatch tools propagate it in the outbound
+    /// steering metadata so a downstream rollup can eventually land back
+    /// in the same conversation.
     async fn execute_tool(
         &self,
         name: &str,
         args: &serde_json::Value,
         caller_agent_id: &str,
+        caller_exec_id: Option<&str>,
+        chat_session_id: Option<&str>,
     ) -> String {
         match name {
             "dispatch_to_worker" => {
@@ -684,7 +892,7 @@ impl Runtime {
                 // Step 1: dispatch. AMS now returns execution_id when
                 // spawn_triggered=true (paired with agent-memory-backend
                 // commit fdcf223).
-                let dispatch = match self.ams.send_steering_message(worker, task, "task", caller_agent_id).await {
+                let dispatch = match self.ams.send_steering_message(worker, task, "task", caller_agent_id, None).await {
                     Ok(v) => v,
                     Err(e) => return serde_json::json!({
                         "ok": false, "error": format!("dispatch: {}", e),
@@ -756,7 +964,24 @@ impl Runtime {
                 if tl_name.is_empty() || task.is_empty() {
                     return serde_json::json!({"error": "tl_name and task are required"}).to_string();
                 }
-                match self.ams.send_steering_message(tl_name, task, "task", caller_agent_id).await {
+                // Hand the TL the rollup breadcrumbs: our agent_id + exec_id.
+                // When the TL's orchestration loop ends, it POSTs a `rollup`
+                // steering back to us tagged with parent_exec_id so we can
+                // correlate on next-idle activation. If our turn came from
+                // a dashboard chat session, we also pass that through so
+                // the TL's rollup carries it back up and our eventual
+                // synthesis turn can post into the same conversation.
+                let rollup_meta = caller_exec_id.map(|exec| {
+                    let mut m = serde_json::json!({
+                        "parent_agent_id": caller_agent_id,
+                        "parent_exec_id": exec,
+                    });
+                    if let Some(cs) = chat_session_id {
+                        m["chat_session_id"] = serde_json::Value::String(cs.to_string());
+                    }
+                    m
+                });
+                match self.ams.send_steering_message(tl_name, task, "task", caller_agent_id, rollup_meta.as_ref()).await {
                     Ok(resp) => serde_json::json!({
                         "ok": true,
                         "dispatched_to": tl_name,
@@ -829,10 +1054,16 @@ impl Runtime {
                 }
             }
             "list_workers" => {
-                match self.ams.list_worker_agents().await {
+                // Scope to this TL's domain-prefixed specialists. If we're
+                // not a TL (no tl- prefix), fall back to the unscoped
+                // specialist roster minus TL daemons + curator.
+                let prefix = Self::tl_specialist_prefix(caller_agent_id);
+                let result = match &prefix {
+                    Some(p) => self.ams.list_worker_agents_filtered(Some(p)).await,
+                    None => self.ams.list_worker_agents().await,
+                };
+                match result {
                     Ok(agents) => {
-                        // Exclude tl-* and memory-curator — those are TL daemons,
-                        // list_workers should return the specialist fleet.
                         let names: Vec<String> = agents.iter().filter_map(|a| {
                             let id = a.get("agent_id").and_then(|v| v.as_str())?;
                             if id.starts_with("tl-") || id == "memory-curator" {
@@ -841,7 +1072,11 @@ impl Runtime {
                                 Some(id.to_string())
                             }
                         }).collect();
-                        serde_json::json!({"workers": names, "count": names.len()}).to_string()
+                        serde_json::json!({
+                            "workers": names,
+                            "count": names.len(),
+                            "scope_prefix": prefix,
+                        }).to_string()
                     }
                     Err(e) => serde_json::json!({"error": e.to_string()}).to_string(),
                 }
@@ -852,21 +1087,87 @@ impl Runtime {
         }
     }
 
+    /// Derive the specialist agent-name prefix from a TL agent_id.
+    ///
+    /// `tl-engineering` -> `engineering-`, `tl-paid-media` -> `paid-media-`,
+    /// etc. Returns `None` for non-TL ids so callers can fall back to the
+    /// unfiltered roster.
+    fn tl_specialist_prefix(agent_id: &str) -> Option<String> {
+        let rest = agent_id.strip_prefix("tl-")?;
+        if rest.is_empty() {
+            None
+        } else {
+            Some(format!("{}-", rest))
+        }
+    }
+
     /// Tool definitions for team-lead agents.
-    fn tl_tool_definitions() -> Vec<serde_json::Value> {
+    ///
+    /// `specialists` is the domain-scoped roster (agent rows returned by AMS
+    /// `/api/v1/agents?name_prefix=...`). We use it to constrain the
+    /// `dispatch_to_worker.worker_name` argument to a real enum of agents
+    /// that actually exist in the agents table, so the LLM cannot hallucinate
+    /// a name like "coder" that would fail downstream spawn.
+    fn tl_tool_definitions(specialists: &[serde_json::Value]) -> Vec<serde_json::Value> {
+        let specialist_names: Vec<String> = specialists
+            .iter()
+            .filter_map(|a| {
+                a.get("agent_id")
+                    .or_else(|| a.get("name"))
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+            })
+            .collect();
+
+        let roster_desc = if specialist_names.is_empty() {
+            "No domain specialists are registered for you. Report this to the caller.".to_string()
+        } else {
+            let bullets: Vec<String> = specialists
+                .iter()
+                .filter_map(|a| {
+                    let name = a.get("agent_id").or_else(|| a.get("name")).and_then(|v| v.as_str())?;
+                    let desc = a.get("description").and_then(|v| v.as_str()).unwrap_or("").trim();
+                    if desc.is_empty() {
+                        Some(format!("- {}", name))
+                    } else {
+                        let short = if desc.len() > 160 {
+                            format!("{}...", &desc[..160])
+                        } else {
+                            desc.to_string()
+                        };
+                        Some(format!("- {}: {}", name, short))
+                    }
+                })
+                .collect();
+            format!(
+                "Available specialists (domain-scoped). Pick the one whose role best fits the task. Do NOT invent names:\n{}",
+                bullets.join("\n"),
+            )
+        };
+
+        let worker_name_schema = if specialist_names.is_empty() {
+            serde_json::json!({
+                "type": "string",
+                "description": roster_desc,
+            })
+        } else {
+            serde_json::json!({
+                "type": "string",
+                "enum": specialist_names,
+                "description": roster_desc,
+            })
+        };
+
         vec![
             serde_json::json!({
                 "type": "function",
                 "function": {
                     "name": "dispatch_to_worker",
-                    "description": "Dispatch a subtask to a worker agent. The worker will execute the task in a git worktree and produce a PR.",
+                    "description": "Dispatch a subtask to one of your domain specialists. The worker will execute the task and produce a result.",
                     "parameters": {
                         "type": "object",
                         "properties": {
-                            "worker_name": {
-                                "type": "string",
-                                "description": "Name of the worker agent (e.g. backend-engineer, frontend-engineer, coder, researcher, technical-writer)"
-                            },
+                            "worker_name": worker_name_schema,
                             "task": {
                                 "type": "string",
                                 "description": "Detailed task description for the worker. Include context, requirements, and expected deliverables."
@@ -902,7 +1203,7 @@ impl Runtime {
                 "type": "function",
                 "function": {
                     "name": "list_workers",
-                    "description": "List all available worker agents that can be dispatched to.",
+                    "description": "List your domain specialists that can be dispatched to. Scoped to this TL only.",
                     "parameters": {
                         "type": "object",
                         "properties": {}

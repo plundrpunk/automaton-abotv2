@@ -239,23 +239,69 @@ impl AmsClient {
     }
 
     /// Send a steering message to another agent via Warden.
+    ///
+    /// `metadata` is a generic correlation blob; AMS stores and returns it
+    /// verbatim. See [`SteeringMessage::metadata`] for the per-`msg_type`
+    /// contract used across the swarm (task dispatch, rollup, etc).
     pub async fn send_steering_message(
         &self,
         agent_id: &str,
         content: &str,
         msg_type: &str,
         sender: &str,
+        metadata: Option<&serde_json::Value>,
     ) -> Result<serde_json::Value> {
         let url = format!(
             "{}/api/warden/agents/{}/messages",
             self.base_url,
             urlencoding::encode(agent_id)
         );
-        let payload = serde_json::json!({
+        let mut payload = serde_json::json!({
             "type": msg_type,
             "content": content,
             "sender": sender,
         });
+        if let Some(md) = metadata {
+            payload["metadata"] = md.clone();
+        }
+        let resp = self.request(Method::POST, url)
+            .json(&payload)
+            .send()
+            .await?
+            .error_for_status()?
+            .json::<serde_json::Value>()
+            .await?;
+        Ok(resp)
+    }
+
+    /// Post an assistant message to a dashboard chat session.
+    ///
+    /// Thin wrapper over AMS internal
+    /// `POST /api/v1/chat/sessions/{id}/assistant-message` endpoint which
+    /// persists the message into the `chat_messages` table that the
+    /// dashboard UI polls. Called after `run_tool_loop` completes when the
+    /// activation carries a `chat_session_id` — this is what lets a
+    /// rollup-triggered synthesis turn show up in the same dashboard
+    /// conversation that initiated the original dispatch.
+    pub async fn post_chat_message(
+        &self,
+        session_id: &str,
+        content: &str,
+        source_agent_id: &str,
+        model: Option<&str>,
+    ) -> Result<serde_json::Value> {
+        let url = format!(
+            "{}/api/v1/chat/sessions/{}/assistant-message",
+            self.base_url,
+            urlencoding::encode(session_id)
+        );
+        let mut payload = serde_json::json!({
+            "content": content,
+            "source_agent_id": source_agent_id,
+        });
+        if let Some(m) = model {
+            payload["model"] = serde_json::Value::String(m.to_string());
+        }
         let resp = self.request(Method::POST, url)
             .json(&payload)
             .send()
@@ -273,7 +319,27 @@ impl AmsClient {
     /// array of agent records. Default server limit is 50; we explicitly ask
     /// for 500 to cover the full hydrated fleet.
     pub async fn list_worker_agents(&self) -> Result<Vec<serde_json::Value>> {
-        let url = format!("{}/api/v1/agents?limit=500", self.base_url);
+        self.list_worker_agents_filtered(None).await
+    }
+
+    /// List agents whose `agent_name` starts with the given prefix.
+    ///
+    /// Domain-scoped TLs (e.g. `tl-engineering`) use this to discover only the
+    /// specialists registered under their domain (e.g. `engineering-`),
+    /// instead of seeing the entire fleet roster. When `prefix` is `None` this
+    /// behaves like [`list_worker_agents`] and returns every agent.
+    pub async fn list_worker_agents_filtered(
+        &self,
+        prefix: Option<&str>,
+    ) -> Result<Vec<serde_json::Value>> {
+        let url = match prefix {
+            Some(p) if !p.is_empty() => format!(
+                "{}/api/v1/agents?limit=500&name_prefix={}",
+                self.base_url,
+                urlencoding::encode(p),
+            ),
+            _ => format!("{}/api/v1/agents?limit=500", self.base_url),
+        };
         let resp: serde_json::Value = self.request(Method::GET, url)
             .send()
             .await?
@@ -395,6 +461,24 @@ pub struct SteeringMessage {
     pub recipient: String,
     #[serde(default)]
     pub timestamp: String,
+    /// Generic per-message correlation blob. Passed through AMS verbatim.
+    ///
+    /// Expected keys by `msg_type` (contract lives here, not in schema):
+    /// - `task` (orchestrator -> TL via dispatch_to_tl):
+    ///     {parent_exec_id, parent_agent_id, chat_session_id?}
+    /// - `rollup` (TL -> orchestrator on completion):
+    ///     {parent_exec_id, child_exec_id, child_agent_id, memory_id,
+    ///      chat_session_id?}
+    /// - `guidance` / `intervention` / `command`: may carry
+    ///     {chat_session_id?} when the user-facing dashboard initiated the
+    ///     turn, so the runtime can post its synthesized reply back into
+    ///     that chat session on completion.
+    ///
+    /// `chat_session_id` rides alongside the agent-to-agent correlation
+    /// keys so a rollup-triggered synthesis turn lands back in the
+    /// originating dashboard conversation instead of being orphaned.
+    #[serde(default)]
+    pub metadata: Option<serde_json::Value>,
 }
 
 impl SteeringMessage {
