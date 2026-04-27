@@ -768,10 +768,12 @@ impl Runtime {
             // record, this steering is the live delivery so the parent
             // gets a ding on next-idle rather than having to poll.
             if let Some((parent_agent, parent_exec)) = rollup_target {
-                let summary: String = if final_text.chars().count() > 500 {
-                    let mut t: String = final_text.chars().take(500).collect();
-                    t.push_str("...");
-                    t
+                let summary: String = if final_text.len() > 500 {
+                    let mut end = 500;
+                    while !final_text.is_char_boundary(end) {
+                        end -= 1;
+                    }
+                    format!("{}...", &final_text[..end])
                 } else {
                     final_text.clone()
                 };
@@ -1044,7 +1046,11 @@ impl Runtime {
                             serde_json::json!({
                                 "file_path": file_path,
                                 "tags": tags,
-                                "snippet": if snippet.len() > 200 { snippet[..200].to_string() } else { snippet },
+                                "snippet": if snippet.len() > 200 {
+                                    let mut end = 200;
+                                    while !snippet.is_char_boundary(end) { end -= 1; }
+                                    snippet[..end].to_string()
+                                } else { snippet },
                                 "score": score,
                             })
                         }).collect();
@@ -1131,7 +1137,9 @@ impl Runtime {
                         Some(format!("- {}", name))
                     } else {
                         let short = if desc.len() > 160 {
-                            format!("{}...", &desc[..160])
+                            let mut end = 160;
+                            while !desc.is_char_boundary(end) { end -= 1; }
+                            format!("{}...", &desc[..end])
                         } else {
                             desc.to_string()
                         };
