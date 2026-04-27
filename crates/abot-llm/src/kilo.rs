@@ -74,6 +74,7 @@ impl KiloBridge {
 
         let output = Command::new(&self.kilo_path)
             .arg(mode.as_flag())
+            .arg("--") // Prevent argument injection
             .arg(prompt)
             .output()
             .map_err(|e| {

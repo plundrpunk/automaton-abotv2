@@ -13,3 +13,6 @@ tracing.workspace = true
 anyhow.workspace = true
 thiserror = "2"
 chrono.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
