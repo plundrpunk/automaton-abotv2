@@ -1,5 +1,5 @@
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
 use anyhow::Result;
@@ -7,9 +7,7 @@ use serde::{Deserialize, Serialize};
 use tracing::{debug, warn};
 
 use abot_ams::client::AmsClient;
-use abot_ams::fleet::{
-    FleetHeartbeatMetrics, FleetHeartbeatRequest, FleetHeartbeatUsage,
-};
+use abot_ams::fleet::{FleetHeartbeatMetrics, FleetHeartbeatRequest, FleetHeartbeatUsage};
 use abot_ams::warden::{Directive, HeartbeatPayload};
 
 use crate::metrics::SystemMetrics;
@@ -228,15 +226,15 @@ fn normalize_fleet_status(status: &str) -> String {
 /// (`ABOT_CONTAINER_ID` / `HOSTNAME`), falls back to the kernel hostname,
 /// finally the literal `"unknown"`.
 fn resolve_container_id() -> String {
-    if let Ok(id) = std::env::var("ABOT_CONTAINER_ID") {
-        if !id.is_empty() {
-            return id;
-        }
+    if let Ok(id) = std::env::var("ABOT_CONTAINER_ID")
+        && !id.is_empty()
+    {
+        return id;
     }
-    if let Ok(id) = std::env::var("HOSTNAME") {
-        if !id.is_empty() {
-            return id;
-        }
+    if let Ok(id) = std::env::var("HOSTNAME")
+        && !id.is_empty()
+    {
+        return id;
     }
     match std::fs::read_to_string("/etc/hostname") {
         Ok(s) => {

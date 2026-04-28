@@ -5,7 +5,7 @@ use crate::traits::{Channel, ChannelError, Message};
 
 /// Telegram channel implementation
 pub struct TelegramChannel {
-    bot_token: String,
+    _bot_token: String,
     chat_id: String,
     connected: bool,
 }
@@ -14,7 +14,7 @@ impl TelegramChannel {
     /// Create a new Telegram channel
     pub fn new(bot_token: impl Into<String>, chat_id: impl Into<String>) -> Self {
         Self {
-            bot_token: bot_token.into(),
+            _bot_token: bot_token.into(),
             chat_id: chat_id.into(),
             connected: false,
         }

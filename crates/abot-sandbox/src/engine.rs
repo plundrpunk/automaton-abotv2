@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::time::Instant;
@@ -58,14 +58,8 @@ pub struct SandboxEngine {
 
 impl SandboxEngine {
     /// Create a new sandbox engine with the given configuration
-    pub fn new(
-        config: SandboxConfig,
-        permissions: PermissionSet,
-    ) -> Result<Self> {
-        let fuel_meter = FuelMeter::new(
-            config.fuel_limit,
-            config.epoch_deadline_ms,
-        );
+    pub fn new(config: SandboxConfig, permissions: PermissionSet) -> Result<Self> {
+        let fuel_meter = FuelMeter::new(config.fuel_limit, config.epoch_deadline_ms);
 
         Ok(Self {
             config,

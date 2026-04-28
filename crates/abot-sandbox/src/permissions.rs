@@ -2,21 +2,12 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 /// Permission set for sandbox execution
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct PermissionSet {
     /// List of allowed file system paths
     pub allowed_paths: Vec<PathBuf>,
     /// Whether network access is permitted
     pub network_allowed: bool,
-}
-
-impl Default for PermissionSet {
-    fn default() -> Self {
-        Self {
-            allowed_paths: vec![],
-            network_allowed: false,
-        }
-    }
 }
 
 impl PermissionSet {
@@ -74,10 +65,7 @@ mod tests {
 
     #[test]
     fn test_path_check_allowed() {
-        let perms = PermissionSet::new(
-            vec![PathBuf::from("/tmp/sandbox")],
-            false,
-        );
+        let perms = PermissionSet::new(vec![PathBuf::from("/tmp/sandbox")], false);
 
         assert!(perms.check_path(Path::new("/tmp/sandbox/file.txt")));
         assert!(!perms.check_path(Path::new("/etc/passwd")));
@@ -112,10 +100,7 @@ mod tests {
     #[test]
     fn test_multiple_allowed_paths() {
         let perms = PermissionSet::new(
-            vec![
-                PathBuf::from("/tmp/a"),
-                PathBuf::from("/tmp/b"),
-            ],
+            vec![PathBuf::from("/tmp/a"), PathBuf::from("/tmp/b")],
             false,
         );
 

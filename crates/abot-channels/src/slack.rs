@@ -5,7 +5,7 @@ use crate::traits::{Channel, ChannelError, Message};
 
 /// Slack channel implementation
 pub struct SlackChannel {
-    bot_token: String,
+    _bot_token: String,
     channel_id: String,
     connected: bool,
 }
@@ -14,7 +14,7 @@ impl SlackChannel {
     /// Create a new Slack channel
     pub fn new(bot_token: impl Into<String>, channel_id: impl Into<String>) -> Self {
         Self {
-            bot_token: bot_token.into(),
+            _bot_token: bot_token.into(),
             channel_id: channel_id.into(),
             connected: false,
         }

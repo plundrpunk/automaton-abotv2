@@ -5,7 +5,7 @@ use crate::traits::{Channel, ChannelError, Message};
 
 /// Discord channel implementation
 pub struct DiscordChannel {
-    bot_token: String,
+    _bot_token: String,
     guild_id: String,
     channel_id: String,
     connected: bool,
@@ -19,7 +19,7 @@ impl DiscordChannel {
         channel_id: impl Into<String>,
     ) -> Self {
         Self {
-            bot_token: bot_token.into(),
+            _bot_token: bot_token.into(),
             guild_id: guild_id.into(),
             channel_id: channel_id.into(),
             connected: false,

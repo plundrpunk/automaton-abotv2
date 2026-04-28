@@ -40,9 +40,15 @@ pub struct AmsConfig {
     pub request_timeout_ms: u64,
 }
 
-fn default_heartbeat_interval() -> u64 { 10 }
-fn default_connect_timeout() -> u64 { 5000 }
-fn default_request_timeout() -> u64 { 30000 }
+fn default_heartbeat_interval() -> u64 {
+    10
+}
+fn default_connect_timeout() -> u64 {
+    5000
+}
+fn default_request_timeout() -> u64 {
+    30000
+}
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct LlmConfig {
@@ -67,8 +73,12 @@ pub struct KiloConfig {
     pub default_mode: String,
 }
 
-fn default_kilo_binary() -> String { "kilo".into() }
-fn default_kilo_mode() -> String { "code".into() }
+fn default_kilo_binary() -> String {
+    "kilo".into()
+}
+fn default_kilo_mode() -> String {
+    "code".into()
+}
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct LlmRouting {
@@ -86,7 +96,9 @@ pub struct LlmFallback {
     pub max_retries: u32,
 }
 
-fn default_max_retries() -> u32 { 2 }
+fn default_max_retries() -> u32 {
+    2
+}
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct SandboxConfig {
@@ -106,11 +118,21 @@ pub struct SandboxConfig {
     pub network_allowed: bool,
 }
 
-fn default_true() -> bool { true }
-fn default_engine() -> String { "wasmtime".into() }
-fn default_fuel_limit() -> u64 { 10_000_000_000 }
-fn default_memory_limit() -> u32 { 256 }
-fn default_epoch_deadline() -> u64 { 60_000 }
+fn default_true() -> bool {
+    true
+}
+fn default_engine() -> String {
+    "wasmtime".into()
+}
+fn default_fuel_limit() -> u64 {
+    10_000_000_000
+}
+fn default_memory_limit() -> u32 {
+    256
+}
+fn default_epoch_deadline() -> u64 {
+    60_000
+}
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct SecurityConfig {
@@ -154,7 +176,9 @@ pub struct McpConfig {
     pub clients: Vec<McpClientConfig>,
 }
 
-fn default_mcp_port() -> u16 { 5100 }
+fn default_mcp_port() -> u16 {
+    5100
+}
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct McpClientConfig {
@@ -177,9 +201,15 @@ pub struct TelemetryConfig {
     pub metrics_port: u16,
 }
 
-fn default_log_level() -> String { "info".into() }
-fn default_log_format() -> String { "json".into() }
-fn default_metrics_port() -> u16 { 9090 }
+fn default_log_level() -> String {
+    "info".into()
+}
+fn default_log_format() -> String {
+    "json".into()
+}
+fn default_metrics_port() -> u16 {
+    9090
+}
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct HandsConfig {
@@ -189,7 +219,9 @@ pub struct HandsConfig {
     pub directory: PathBuf,
 }
 
-fn default_hands_dir() -> PathBuf { PathBuf::from("./hands") }
+fn default_hands_dir() -> PathBuf {
+    PathBuf::from("./hands")
+}
 
 impl AbotConfig {
     /// Load config from TOML file with environment variable overrides.

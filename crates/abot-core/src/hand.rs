@@ -200,10 +200,10 @@ pub fn load_hand(hands_dir: &Path, agent_name: &str) -> Option<LoadedHand> {
 }
 
 fn load_manifest(path: &Path) -> Result<HandManifest> {
-    let contents = std::fs::read_to_string(path)
-        .with_context(|| format!("reading {}", path.display()))?;
-    let manifest: HandManifest = toml::from_str(&contents)
-        .with_context(|| format!("parsing {}", path.display()))?;
+    let contents =
+        std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+    let manifest: HandManifest =
+        toml::from_str(&contents).with_context(|| format!("parsing {}", path.display()))?;
     Ok(manifest)
 }
 

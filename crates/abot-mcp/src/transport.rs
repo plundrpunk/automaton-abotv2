@@ -59,7 +59,7 @@ impl Transport {
     }
 
     /// Send a message over the transport
-    pub async fn send(&self, message: Value) -> Result<(), TransportError> {
+    pub async fn send(&self, _message: Value) -> Result<(), TransportError> {
         if !self.connected {
             return Err(TransportError::SendFailed(
                 "Transport not connected".to_string(),
