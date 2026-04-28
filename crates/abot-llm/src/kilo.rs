@@ -50,6 +50,14 @@ pub struct KiloBridge {
 }
 
 impl KiloBridge {
+    fn command_args(prompt: &str, mode: &KiloMode) -> Vec<String> {
+        vec![
+            mode.as_flag().to_string(),
+            "--".to_string(),
+            prompt.to_string(),
+        ]
+    }
+
     /// Create a new Kilo bridge
     ///
     /// # Arguments
@@ -61,21 +69,16 @@ impl KiloBridge {
     }
 
     /// Execute a prompt with the specified mode
-    pub fn execute(
-        &self,
-        prompt: &str,
-        mode: KiloMode,
-    ) -> Result<LlmResponse, KiloError> {
+    pub fn execute(&self, prompt: &str, mode: KiloMode) -> Result<LlmResponse, KiloError> {
         debug!(
             mode = ?mode,
             prompt_len = prompt.len(),
             "Invoking Kilo"
         );
+        let args = Self::command_args(prompt, &mode);
 
         let output = Command::new(&self.kilo_path)
-            .arg(mode.as_flag())
-            .arg("--") // Prevent argument injection
-            .arg(prompt)
+            .args(&args)
             .output()
             .map_err(|e| {
                 warn!("Failed to execute kilo: {}", e);
@@ -88,13 +91,10 @@ impl KiloBridge {
         }
 
         let stdout = String::from_utf8(output.stdout)
-            .map_err(|e| {
-                KiloError::InvalidOutput(format!("Invalid UTF-8: {}", e))
-            })?;
+            .map_err(|e| KiloError::InvalidOutput(format!("Invalid UTF-8: {}", e)))?;
 
         // Parse Kilo output (simplified - actual format depends on Kilo)
-        let (content, tokens_used) =
-            Self::parse_output(&stdout)?;
+        let (content, tokens_used) = Self::parse_output(&stdout)?;
 
         Ok(LlmResponse {
             content,
@@ -122,9 +122,7 @@ impl KiloBridge {
 
         let content = content_lines.join("\n");
         if content.is_empty() {
-            return Err(KiloError::InvalidOutput(
-                "No content in output".to_string(),
-            ));
+            return Err(KiloError::InvalidOutput("No content in output".to_string()));
         }
 
         Ok((content, tokens_used))
@@ -145,8 +143,7 @@ mod tests {
     #[test]
     fn test_parse_output() {
         let output = "TOKENS: 42\nThis is the generated content";
-        let (content, tokens) =
-            KiloBridge::parse_output(output).unwrap();
+        let (content, tokens) = KiloBridge::parse_output(output).unwrap();
 
         assert_eq!(content, "This is the generated content");
         assert_eq!(tokens, 42);
@@ -155,8 +152,7 @@ mod tests {
     #[test]
     fn test_parse_output_multiline() {
         let output = "TOKENS: 100\nLine 1\nLine 2\nLine 3";
-        let (content, tokens) =
-            KiloBridge::parse_output(output).unwrap();
+        let (content, tokens) = KiloBridge::parse_output(output).unwrap();
 
         assert!(content.contains("Line 1"));
         assert!(content.contains("Line 3"));
@@ -170,5 +166,14 @@ mod tests {
 
         let bridge = KiloBridge::new(Some("/usr/local/bin/kilo".to_string()));
         assert_eq!(bridge.kilo_path, "/usr/local/bin/kilo");
+    }
+
+    #[test]
+    fn test_dash_prefixed_prompts_are_after_end_of_options_separator() {
+        let args = KiloBridge::command_args("--help", &KiloMode::Ask);
+        assert_eq!(args, vec!["--ask", "--", "--help"]);
+
+        let args = KiloBridge::command_args("-x", &KiloMode::Code);
+        assert_eq!(args, vec!["--code", "--", "-x"]);
     }
 }
