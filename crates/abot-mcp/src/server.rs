@@ -1,5 +1,4 @@
 use anyhow::Result;
-use serde_json::json;
 use std::collections::HashMap;
 use tracing::debug;
 
@@ -87,6 +86,7 @@ impl McpServer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[test]
     fn test_server_creation() {
@@ -118,8 +118,12 @@ mod tests {
         let mut server = McpServer::new(3000);
         let schema = json!({});
 
-        server.register_tool("tool1", "First tool", schema.clone()).unwrap();
-        server.register_tool("tool2", "Second tool", schema.clone()).unwrap();
+        server
+            .register_tool("tool1", "First tool", schema.clone())
+            .unwrap();
+        server
+            .register_tool("tool2", "Second tool", schema.clone())
+            .unwrap();
 
         let tools = server.get_tools();
         assert_eq!(tools.len(), 2);

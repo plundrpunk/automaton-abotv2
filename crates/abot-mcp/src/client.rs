@@ -42,7 +42,7 @@ impl McpClient {
     pub async fn call_tool(
         &self,
         tool_name: &str,
-        arguments: serde_json::Value,
+        _arguments: serde_json::Value,
     ) -> Result<serde_json::Value> {
         debug!(
             server = &self.server_url,
