@@ -6,18 +6,15 @@ use tracing::debug;
 use urlencoding::encode;
 
 use crate::fleet::{
-    ExecutionChunkRequest,
-    ExecutionChunkResponse,
-    FleetHeartbeatRequest,
-    FleetHeartbeatResponse,
-    FleetRegisterAgentRequest,
-    FleetRegisterAgentResponse,
-    RegisterExecutionRequest,
+    ExecutionChunkRequest, ExecutionChunkResponse, FleetHeartbeatRequest, FleetHeartbeatResponse,
+    FleetRegisterAgentRequest, FleetRegisterAgentResponse, RegisterExecutionRequest,
     RegisterExecutionResponse,
 };
-use crate::llm::{CompletionRequest, CompletionResponse, ToolCompletionRequest, ToolCompletionResponse};
-use crate::warden::{BirthRequest, BirthResponse, DeathRequest, DeathResponse};
+use crate::llm::{
+    CompletionRequest, CompletionResponse, ToolCompletionRequest, ToolCompletionResponse,
+};
 use crate::warden::{AmsHeartbeatResponse, HeartbeatPayload, HeartbeatResponse};
+use crate::warden::{BirthRequest, BirthResponse, DeathRequest, DeathResponse};
 
 /// HTTP client for communicating with AMS backend.
 /// The abot is a dumb body — AMS is the brain.
@@ -62,7 +59,8 @@ impl AmsClient {
         let url = format!("{}/api/warden/heartbeat", self.base_url);
         debug!(url = %url, agent_id = %payload.agent_id, "Sending heartbeat");
 
-        let raw = self.request(Method::POST, url)
+        let raw = self
+            .request(Method::POST, url)
             .json(&payload)
             .send()
             .await?
@@ -78,7 +76,8 @@ impl AmsClient {
         let url = format!("{}/api/warden/birth", self.base_url);
         debug!(url = %url, agent = %request.agent_name, "Executing birth ritual");
 
-        let resp = self.request(Method::POST, url)
+        let resp = self
+            .request(Method::POST, url)
             .json(&request)
             .send()
             .await?
@@ -94,7 +93,8 @@ impl AmsClient {
         let url = format!("{}/api/warden/death", self.base_url);
         debug!(url = %url, agent_id = %request.agent_id, "Executing death ritual");
 
-        let resp = self.request(Method::POST, url)
+        let resp = self
+            .request(Method::POST, url)
             .json(&request)
             .send()
             .await?
@@ -113,7 +113,8 @@ impl AmsClient {
             encode(agent_id)
         );
 
-        let resp = self.request(Method::GET, url)
+        let resp = self
+            .request(Method::GET, url)
             .send()
             .await?
             .error_for_status()?
@@ -128,7 +129,8 @@ impl AmsClient {
         request: &RegisterExecutionRequest,
     ) -> Result<RegisterExecutionResponse> {
         let url = format!("{}/api/fleet/executions/register", self.base_url);
-        let resp = self.request(Method::POST, url)
+        let resp = self
+            .request(Method::POST, url)
             .json(request)
             .send()
             .await?
@@ -143,8 +145,12 @@ impl AmsClient {
         execution_id: &str,
         chunk: &ExecutionChunkRequest,
     ) -> Result<ExecutionChunkResponse> {
-        let url = format!("{}/api/fleet/executions/{}/emit", self.base_url, execution_id);
-        let resp = self.request(Method::POST, url)
+        let url = format!(
+            "{}/api/fleet/executions/{}/emit",
+            self.base_url, execution_id
+        );
+        let resp = self
+            .request(Method::POST, url)
             .json(chunk)
             .send()
             .await?
@@ -154,13 +160,11 @@ impl AmsClient {
         Ok(resp)
     }
 
-    pub async fn complete(
-        &self,
-        request: &CompletionRequest,
-    ) -> Result<CompletionResponse> {
+    pub async fn complete(&self, request: &CompletionRequest) -> Result<CompletionResponse> {
         let url = format!("{}/api/v1/llm/complete", self.base_url);
         let timeout_ms = self.request_timeout_ms.max(180_000);
-        let resp = self.request(Method::POST, url)
+        let resp = self
+            .request(Method::POST, url)
             .timeout(Duration::from_millis(timeout_ms))
             .json(request)
             .send()
@@ -177,10 +181,14 @@ impl AmsClient {
     /// MemoryResponse schema drifting on the server side. AMS requires the
     /// trailing slash; without it the server responds 307 and reqwest drops
     /// the request body before following.
-    pub async fn create_memory(&self, memory: crate::memory::CreateMemoryRequest) -> Result<serde_json::Value> {
+    pub async fn create_memory(
+        &self,
+        memory: crate::memory::CreateMemoryRequest,
+    ) -> Result<serde_json::Value> {
         let url = format!("{}/api/v1/memories/", self.base_url);
 
-        let resp = self.request(Method::POST, url)
+        let resp = self
+            .request(Method::POST, url)
             .json(&memory)
             .send()
             .await?
@@ -200,7 +208,8 @@ impl AmsClient {
     pub async fn search_memories(&self, query: &str, limit: u32) -> Result<Vec<serde_json::Value>> {
         let url = format!("{}/api/v1/memories/search/", self.base_url);
 
-        let resp: serde_json::Value = self.request(Method::POST, url)
+        let resp: serde_json::Value = self
+            .request(Method::POST, url)
             .json(&serde_json::json!({
                 "query": query,
                 "limit": limit,
@@ -219,7 +228,6 @@ impl AmsClient {
         Ok(results)
     }
 
-
     /// LLM completion with tool calling support.
     pub async fn complete_with_tools(
         &self,
@@ -227,7 +235,8 @@ impl AmsClient {
     ) -> Result<ToolCompletionResponse> {
         let url = format!("{}/api/v1/llm/complete-with-tools", self.base_url);
         let timeout_ms = self.request_timeout_ms.max(180_000);
-        let resp = self.request(Method::POST, url)
+        let resp = self
+            .request(Method::POST, url)
             .timeout(Duration::from_millis(timeout_ms))
             .json(request)
             .send()
@@ -264,7 +273,8 @@ impl AmsClient {
         if let Some(md) = metadata {
             payload["metadata"] = md.clone();
         }
-        let resp = self.request(Method::POST, url)
+        let resp = self
+            .request(Method::POST, url)
             .json(&payload)
             .send()
             .await?
@@ -302,7 +312,8 @@ impl AmsClient {
         if let Some(m) = model {
             payload["model"] = serde_json::Value::String(m.to_string());
         }
-        let resp = self.request(Method::POST, url)
+        let resp = self
+            .request(Method::POST, url)
             .json(&payload)
             .send()
             .await?
@@ -340,7 +351,8 @@ impl AmsClient {
             ),
             _ => format!("{}/api/v1/agents?limit=500", self.base_url),
         };
-        let resp: serde_json::Value = self.request(Method::GET, url)
+        let resp: serde_json::Value = self
+            .request(Method::GET, url)
             .send()
             .await?
             .error_for_status()?
@@ -370,7 +382,8 @@ impl AmsClient {
             "created_by": creator_agent_id,
             "source": "abot-orchestrator",
         });
-        let resp = self.request(Method::POST, url)
+        let resp = self
+            .request(Method::POST, url)
             .json(&payload)
             .send()
             .await?
@@ -389,7 +402,8 @@ impl AmsClient {
     ) -> Result<FleetHeartbeatResponse> {
         let url = format!("{}/api/fleet/heartbeat", self.base_url);
         debug!(url = %url, agent_id = %payload.agent_id, "Sending fleet heartbeat");
-        let resp = self.request(Method::POST, url)
+        let resp = self
+            .request(Method::POST, url)
             .json(payload)
             .send()
             .await?
@@ -406,7 +420,8 @@ impl AmsClient {
     ) -> Result<FleetRegisterAgentResponse> {
         let url = format!("{}/api/fleet/agents", self.base_url);
         debug!(url = %url, agent_id = %payload.agent_id, "Registering fleet agent");
-        let resp = self.request(Method::POST, url)
+        let resp = self
+            .request(Method::POST, url)
             .json(payload)
             .send()
             .await?
@@ -426,7 +441,8 @@ impl AmsClient {
             self.base_url,
             urlencoding::encode(execution_id)
         );
-        let resp = self.request(Method::GET, url)
+        let resp = self
+            .request(Method::GET, url)
             .send()
             .await?
             .error_for_status()?
@@ -444,9 +460,15 @@ impl AmsClient {
 }
 
 /// A steering message from AMS (queued by DLPFC, admin, or system).
-fn default_guidance_type() -> String { "guidance".to_string() }
-fn default_dashboard_sender() -> String { "dashboard".to_string() }
-fn default_agent_recipient() -> String { "agent".to_string() }
+fn default_guidance_type() -> String {
+    "guidance".to_string()
+}
+fn default_dashboard_sender() -> String {
+    "dashboard".to_string()
+}
+fn default_agent_recipient() -> String {
+    "agent".to_string()
+}
 
 #[derive(Debug, serde::Deserialize)]
 pub struct SteeringMessage {

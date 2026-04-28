@@ -74,10 +74,7 @@ mod tests {
 
     #[test]
     fn test_path_check_allowed() {
-        let perms = PermissionSet::new(
-            vec![PathBuf::from("/tmp/sandbox")],
-            false,
-        );
+        let perms = PermissionSet::new(vec![PathBuf::from("/tmp/sandbox")], false);
 
         assert!(perms.check_path(Path::new("/tmp/sandbox/file.txt")));
         assert!(!perms.check_path(Path::new("/etc/passwd")));
@@ -112,10 +109,7 @@ mod tests {
     #[test]
     fn test_multiple_allowed_paths() {
         let perms = PermissionSet::new(
-            vec![
-                PathBuf::from("/tmp/a"),
-                PathBuf::from("/tmp/b"),
-            ],
+            vec![PathBuf::from("/tmp/a"), PathBuf::from("/tmp/b")],
             false,
         );
 
