@@ -622,10 +622,10 @@ impl Runtime {
             let response = self
                 .ams
                 .complete_with_tools(&ToolCompletionRequest {
-                    messages: messages.clone(),
-                    tools: tools.clone(),
+                    messages: &messages,
+                    tools: &tools,
                     max_tokens: 4000,
-                    model: Some(requested_model.to_string()),
+                    model: Some(requested_model),
                     temperature: Some(0.3),
                 })
                 .await;
@@ -1456,7 +1456,7 @@ impl Runtime {
                 prompt: prompt.to_string(),
                 max_tokens: 4000,
                 role: "agent".to_string(),
-                model: Some(requested_model),
+                model: Some(requested_model.to_string()),
                 system_prompt,
                 temperature: None,
             })
