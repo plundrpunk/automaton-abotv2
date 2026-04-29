@@ -231,7 +231,7 @@ impl AmsClient {
     /// LLM completion with tool calling support.
     pub async fn complete_with_tools(
         &self,
-        request: &ToolCompletionRequest,
+        request: &ToolCompletionRequest<'_>,
     ) -> Result<ToolCompletionResponse> {
         let url = format!("{}/api/v1/llm/complete-with-tools", self.base_url);
         let timeout_ms = self.request_timeout_ms.max(180_000);
