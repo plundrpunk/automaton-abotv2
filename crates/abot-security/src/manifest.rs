@@ -109,6 +109,12 @@ impl ManifestSigner {
 
     fn decode_signature(sig_str: &str) -> Result<[u8; 64], ManifestError> {
         let mut sig_bytes = [0u8; 64];
+
+        // Prevent multi-byte character panics on byte-indexed slicing
+        if !sig_str.is_ascii() {
+            return Err(ManifestError::InvalidSignature);
+        }
+
         // Simple hex parsing - production would use proper hex decoder
         if sig_str.len() != 128 {
             return Err(ManifestError::InvalidSignature);
@@ -178,5 +184,11 @@ mod tests {
         let sig2 = signer.sign("content2").unwrap().signature;
 
         assert_ne!(sig1, sig2);
+    }
+
+    #[test]
+    fn test_decode_signature_non_ascii() {
+        let result = ManifestSigner::decode_signature(&"🚀".repeat(32));
+        assert!(matches!(result, Err(ManifestError::InvalidSignature)));
     }
 }
