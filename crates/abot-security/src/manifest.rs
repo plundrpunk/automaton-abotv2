@@ -110,7 +110,7 @@ impl ManifestSigner {
     fn decode_signature(sig_str: &str) -> Result<[u8; 64], ManifestError> {
         let mut sig_bytes = [0u8; 64];
         // Simple hex parsing - production would use proper hex decoder
-        if sig_str.len() != 128 {
+        if sig_str.len() != 128 || !sig_str.is_ascii() {
             return Err(ManifestError::InvalidSignature);
         }
 
