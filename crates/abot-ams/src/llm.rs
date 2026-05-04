@@ -27,12 +27,12 @@ pub struct CompletionResponse {
 
 /// Request for LLM completion with tool calling.
 #[derive(Debug, Serialize)]
-pub struct ToolCompletionRequest {
-    pub messages: Vec<serde_json::Value>,
-    pub tools: Vec<serde_json::Value>,
+pub struct ToolCompletionRequest<'a> {
+    pub messages: &'a [serde_json::Value],
+    pub tools: &'a [serde_json::Value],
     pub max_tokens: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub model: Option<String>,
+    pub model: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f64>,
 }
