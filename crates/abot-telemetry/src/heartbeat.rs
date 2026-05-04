@@ -141,10 +141,10 @@ impl HeartbeatReporter {
         );
 
         let warden_payload = HeartbeatPayload {
-            agent_id: state.agent_id.clone(),
-            status: state.status.clone(),
+            agent_id: &state.agent_id,
+            status: &state.status,
             context_pct: state.context_pct,
-            execution_id: state.current_execution.clone(),
+            execution_id: state.current_execution.as_deref(),
             metadata: None,
         };
 

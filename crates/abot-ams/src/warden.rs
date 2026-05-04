@@ -3,13 +3,16 @@ use tracing::warn;
 
 /// Heartbeat payload sent to AMS every tick.
 /// The abot reports state; AMS makes decisions.
+///
+/// BOLT OPTIMIZATION: Uses borrowed references (`&'a str`) instead of owned `String`s
+/// to prevent costly memory allocations (`.clone()`) on every frequent telemetry tick.
 #[derive(Debug, Serialize)]
-pub struct HeartbeatPayload {
-    pub agent_id: String,
-    pub status: String,
+pub struct HeartbeatPayload<'a> {
+    pub agent_id: &'a str,
+    pub status: &'a str,
     pub context_pct: f64,
-    pub execution_id: Option<String>,
-    pub metadata: Option<serde_json::Value>,
+    pub execution_id: Option<&'a str>,
+    pub metadata: Option<&'a serde_json::Value>,
 }
 
 /// Raw AMS heartbeat response — the actual wire format from warden.py.

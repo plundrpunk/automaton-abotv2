@@ -55,7 +55,7 @@ impl AmsClient {
     /// AMS returns action-oriented responses (remind, begin_death_ritual,
     /// pause_and_queue). We deserialize the raw format and convert to
     /// the clean Directive enum via the adapter layer.
-    pub async fn heartbeat(&self, payload: HeartbeatPayload) -> Result<HeartbeatResponse> {
+    pub async fn heartbeat(&self, payload: HeartbeatPayload<'_>) -> Result<HeartbeatResponse> {
         let url = format!("{}/api/warden/heartbeat", self.base_url);
         debug!(url = %url, agent_id = %payload.agent_id, "Sending heartbeat");
 
