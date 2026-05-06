@@ -160,7 +160,7 @@ impl AmsClient {
         Ok(resp)
     }
 
-    pub async fn complete(&self, request: &CompletionRequest) -> Result<CompletionResponse> {
+    pub async fn complete(&self, request: &CompletionRequest<'_>) -> Result<CompletionResponse> {
         let url = format!("{}/api/v1/llm/complete", self.base_url);
         let timeout_ms = self.request_timeout_ms.max(180_000);
         let resp = self

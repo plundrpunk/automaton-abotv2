@@ -1453,11 +1453,11 @@ impl Runtime {
         let response = self
             .ams
             .complete(&CompletionRequest {
-                prompt: prompt.to_string(),
+                prompt,
                 max_tokens: 4000,
-                role: "agent".to_string(),
-                model: Some(requested_model),
-                system_prompt,
+                role: "agent",
+                model: Some(&requested_model),
+                system_prompt: system_prompt.as_deref(),
                 temperature: None,
             })
             .await?;

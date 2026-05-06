@@ -1,14 +1,18 @@
 use serde::{Deserialize, Serialize};
 
+/// Request for LLM completion.
+///
+/// BOLT OPTIMIZATION: Uses borrowed references (`&'a str`) instead of owned `String`s
+/// to prevent costly memory allocations and copies when constructing the request for serialization.
 #[derive(Debug, Serialize)]
-pub struct CompletionRequest {
-    pub prompt: String,
+pub struct CompletionRequest<'a> {
+    pub prompt: &'a str,
     pub max_tokens: u32,
-    pub role: String,
+    pub role: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub model: Option<String>,
+    pub model: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub system_prompt: Option<String>,
+    pub system_prompt: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f64>,
 }
