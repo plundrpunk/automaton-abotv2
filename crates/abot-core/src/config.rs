@@ -27,7 +27,7 @@ fn default_agent_id() -> String {
     uuid::Uuid::new_v4().to_string()
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Deserialize, Clone)]
 pub struct AmsConfig {
     pub url: String,
     #[serde(default)]
@@ -38,6 +38,18 @@ pub struct AmsConfig {
     pub connect_timeout_ms: u64,
     #[serde(default = "default_request_timeout")]
     pub request_timeout_ms: u64,
+}
+
+impl std::fmt::Debug for AmsConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AmsConfig")
+            .field("url", &self.url)
+            .field("api_key", &"***")
+            .field("heartbeat_interval_secs", &self.heartbeat_interval_secs)
+            .field("connect_timeout_ms", &self.connect_timeout_ms)
+            .field("request_timeout_ms", &self.request_timeout_ms)
+            .finish()
+    }
 }
 
 fn default_heartbeat_interval() -> u64 {
