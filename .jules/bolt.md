@@ -5,3 +5,7 @@
 ## 2026-05-04 - LLM Request Payload Optimization
 **Learning:** In the core LLM execution loop (`runtime.rs`), ownership of large message and tool arrays in `ToolCompletionRequest` forced full `.clone()` calls before each tool-completion request.
 **Action:** Prefer borrowed request fields like `&[T]` and `&str` for serialization-only payload structs so hot loops can reuse existing data without heap cloning.
+
+## 2026-05-06 - LLM Completion Request Payload Optimization
+**Learning:** Instantiating `CompletionRequest` struct with owned `String` fields required cloning/allocating memory (`.to_string()`) when constructing request bodies. Given the frequency of calls to the LLM backend during normal agent operations, eliminating these allocations is a critical performance win.
+**Action:** Consistently use borrowed references (`&'a str`) instead of owned `String` fields in structs exclusively used for payload serialization (`CompletionRequest` as well as `ToolCompletionRequest`), significantly reducing unneeded heap allocations and copy operations.
