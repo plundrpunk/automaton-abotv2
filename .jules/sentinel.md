@@ -7,3 +7,7 @@
 **Vulnerability:** Denial of Service (DoS) due to panics caused by byte-indexing strings containing multi-byte UTF-8 characters without checking char boundaries.
 **Learning:** Found in `crates/abot-security/src/manifest.rs` in `decode_signature`. String slices in Rust must align with character boundaries; otherwise, the program panics. The hex signature parser used `&sig_str[i*2..i*2+2]` assuming a pure hex string, but an attacker could supply a 128-byte string containing multi-byte characters to trigger the panic.
 **Prevention:** Always validate strings are pure ASCII using `.is_ascii()` before performing raw byte-indexed slicing on them, or iterate over characters/bytes safely.
+## 2026-05-06 - [Redact API Key in Debug Derive]
+**Vulnerability:** The AMS configuration struct automatically derived `Debug`, which could expose the plaintext `api_key` if logged during startup or on errors.
+**Learning:** Automatically derived `Debug` traits on configuration structs represent a risk for secrets leakage.
+**Prevention:** Manually implement `std::fmt::Debug` to redact sensitive fields such as API keys.
