@@ -7,3 +7,8 @@
 **Vulnerability:** Denial of Service (DoS) due to panics caused by byte-indexing strings containing multi-byte UTF-8 characters without checking char boundaries.
 **Learning:** Found in `crates/abot-security/src/manifest.rs` in `decode_signature`. String slices in Rust must align with character boundaries; otherwise, the program panics. The hex signature parser used `&sig_str[i*2..i*2+2]` assuming a pure hex string, but an attacker could supply a 128-byte string containing multi-byte characters to trigger the panic.
 **Prevention:** Always validate strings are pure ASCII using `.is_ascii()` before performing raw byte-indexed slicing on them, or iterate over characters/bytes safely.
+
+## 2026-05-18 - [Secret Leakage via Derived Debug Implementations]
+**Vulnerability:** Exposure of sensitive configuration values (like API keys and tokens) in logs and debugging output.
+**Learning:** Found in `crates/abot-ams/src/client.rs` (`AmsConfig`) and `crates/abot-core/src/config.rs` (`ChannelAdapterConfig`). By default, deriving `Debug` will output all fields of a struct. If a struct containing secrets is printed or logged using `{:?}`, those secrets are leaked in plaintext.
+**Prevention:** Do not use `#[derive(Debug)]` on structs containing sensitive information. Instead, manually implement `std::fmt::Debug` and explicitly redact the sensitive fields by formatting them as `***` or similar.
