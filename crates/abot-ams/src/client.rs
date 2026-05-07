@@ -513,13 +513,25 @@ impl SteeringMessage {
 }
 
 /// AMS connection configuration.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct AmsConfig {
     pub url: String,
     pub api_key: String,
     pub connect_timeout_ms: u64,
     pub request_timeout_ms: u64,
     pub heartbeat_interval_secs: u64,
+}
+
+impl std::fmt::Debug for AmsConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AmsConfig")
+            .field("url", &self.url)
+            .field("api_key", &"***")
+            .field("connect_timeout_ms", &self.connect_timeout_ms)
+            .field("request_timeout_ms", &self.request_timeout_ms)
+            .field("heartbeat_interval_secs", &self.heartbeat_interval_secs)
+            .finish()
+    }
 }
 
 #[cfg(test)]

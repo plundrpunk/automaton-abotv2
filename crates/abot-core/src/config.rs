@@ -170,12 +170,21 @@ pub struct ChannelsConfig {
     pub whatsapp: Option<ChannelAdapterConfig>,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Deserialize, Clone)]
 pub struct ChannelAdapterConfig {
     #[serde(default)]
     pub enabled: bool,
     #[serde(default)]
     pub token: String,
+}
+
+impl std::fmt::Debug for ChannelAdapterConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ChannelAdapterConfig")
+            .field("enabled", &self.enabled)
+            .field("token", &"***")
+            .finish()
+    }
 }
 
 #[derive(Debug, Deserialize, Clone)]
