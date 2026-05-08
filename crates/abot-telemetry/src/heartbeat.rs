@@ -187,7 +187,12 @@ impl HeartbeatReporter {
         self.interval_secs
     }
 
-    fn build_fleet_payload<'a>(&'a self, state: &'a RuntimeState, timestamp: &'a str, status: &'a str) -> FleetHeartbeatRequest<'a> {
+    fn build_fleet_payload<'a>(
+        &'a self,
+        state: &'a RuntimeState,
+        timestamp: &'a str,
+        status: &'a str,
+    ) -> FleetHeartbeatRequest<'a> {
         let uptime_secs = self.started_at.elapsed().as_secs();
         let sys = SystemMetrics::collect(uptime_secs);
         let (tokens_in, tokens_out, executions) = self.counters.drain();
