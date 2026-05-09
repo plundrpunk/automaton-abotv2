@@ -184,15 +184,15 @@ impl HeartbeatReporter {
         self.interval_secs
     }
 
-    fn build_fleet_payload(&self, state: &RuntimeState) -> FleetHeartbeatRequest {
+    fn build_fleet_payload<'a>(&'a self, state: &'a RuntimeState) -> FleetHeartbeatRequest<'a> {
         let uptime_secs = self.started_at.elapsed().as_secs();
         let sys = SystemMetrics::collect(uptime_secs);
         let (tokens_in, tokens_out, executions) = self.counters.drain();
 
         FleetHeartbeatRequest {
-            agent_id: state.agent_id.clone(),
-            tenant_id: self.tenant_id.clone(),
-            container_id: self.container_id.clone(),
+            agent_id: &state.agent_id,
+            tenant_id: &self.tenant_id,
+            container_id: &self.container_id,
             timestamp: chrono::Utc::now().to_rfc3339(),
             status: normalize_fleet_status(&state.status),
             metrics: FleetHeartbeatMetrics {
@@ -213,12 +213,20 @@ impl HeartbeatReporter {
 
 /// Map the runtime status enum to the narrower fleet vocabulary
 /// (`idle` | `working` | `error`) expected by app/api/fleet.py.
-fn normalize_fleet_status(status: &str) -> String {
-    let s = status.to_ascii_lowercase();
-    match s.as_str() {
-        "working" | "running" | "busy" | "executing" => "working".to_string(),
-        "error" | "failed" | "crashed" => "error".to_string(),
-        _ => "idle".to_string(),
+fn normalize_fleet_status(status: &str) -> &'static str {
+    if status.eq_ignore_ascii_case("working")
+        || status.eq_ignore_ascii_case("running")
+        || status.eq_ignore_ascii_case("busy")
+        || status.eq_ignore_ascii_case("executing")
+    {
+        "working"
+    } else if status.eq_ignore_ascii_case("error")
+        || status.eq_ignore_ascii_case("failed")
+        || status.eq_ignore_ascii_case("crashed")
+    {
+        "error"
+    } else {
+        "idle"
     }
 }
 
