@@ -398,7 +398,7 @@ impl AmsClient {
     /// surfaces agents on `/api/fleet/status`.
     pub async fn fleet_heartbeat(
         &self,
-        payload: &FleetHeartbeatRequest,
+        payload: &FleetHeartbeatRequest<'_>,
     ) -> Result<FleetHeartbeatResponse> {
         let url = format!("{}/api/fleet/heartbeat", self.base_url);
         debug!(url = %url, agent_id = %payload.agent_id, "Sending fleet heartbeat");
