@@ -396,9 +396,9 @@ impl AmsClient {
     /// Fleet heartbeat — populates the in-memory container_heartbeats +
     /// fleet_registered_agents maps in `app/api/fleet.py`. This is what
     /// surfaces agents on `/api/fleet/status`.
-    pub async fn fleet_heartbeat(
+    pub async fn fleet_heartbeat<'a>(
         &self,
-        payload: &FleetHeartbeatRequest,
+        payload: &FleetHeartbeatRequest<'a>,
     ) -> Result<FleetHeartbeatResponse> {
         let url = format!("{}/api/fleet/heartbeat", self.base_url);
         debug!(url = %url, agent_id = %payload.agent_id, "Sending fleet heartbeat");
