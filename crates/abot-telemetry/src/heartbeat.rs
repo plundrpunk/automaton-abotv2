@@ -141,14 +141,18 @@ impl HeartbeatReporter {
         );
 
         let warden_payload = HeartbeatPayload {
-            agent_id: &state.agent_id,
+            agent_id: state.agent_id.as_str(),
             status: &state.status,
             context_pct: state.context_pct,
             execution_id: state.current_execution.as_deref(),
             metadata: None,
         };
 
-        let fleet_payload = self.build_fleet_payload(state);
+        // Precompute owned strings
+        let timestamp = chrono::Utc::now().to_rfc3339();
+        let status_str = normalize_fleet_status(&state.status);
+
+        let fleet_payload = self.build_fleet_payload(state, &timestamp, &status_str);
 
         let (warden_res, fleet_res) = tokio::join!(
             self.ams_client.heartbeat(warden_payload),
@@ -184,17 +188,22 @@ impl HeartbeatReporter {
         self.interval_secs
     }
 
-    fn build_fleet_payload(&self, state: &RuntimeState) -> FleetHeartbeatRequest {
+    fn build_fleet_payload<'a>(
+        &'a self,
+        state: &'a RuntimeState,
+        timestamp: &'a str,
+        status: &'a str,
+    ) -> FleetHeartbeatRequest<'a> {
         let uptime_secs = self.started_at.elapsed().as_secs();
         let sys = SystemMetrics::collect(uptime_secs);
         let (tokens_in, tokens_out, executions) = self.counters.drain();
 
         FleetHeartbeatRequest {
-            agent_id: state.agent_id.clone(),
-            tenant_id: self.tenant_id.clone(),
-            container_id: self.container_id.clone(),
-            timestamp: chrono::Utc::now().to_rfc3339(),
-            status: normalize_fleet_status(&state.status),
+            agent_id: state.agent_id.as_str(),
+            tenant_id: self.tenant_id.as_str(),
+            container_id: self.container_id.as_str(),
+            timestamp,
+            status,
             metrics: FleetHeartbeatMetrics {
                 memory_usage_mb: sys.ram_mb.round().max(0.0) as u64,
                 cpu_percent: sys.cpu_pct.round().clamp(0.0, 100.0) as u32,
