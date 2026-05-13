@@ -99,12 +99,12 @@ pub struct FleetHeartbeatUsage {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct FleetHeartbeatRequest {
-    pub agent_id: String,
-    pub tenant_id: String,
-    pub container_id: String,
-    pub timestamp: String,
-    pub status: String,
+pub struct FleetHeartbeatRequest<'a> {
+    pub agent_id: &'a str,
+    pub tenant_id: &'a str,
+    pub container_id: &'a str,
+    pub timestamp: &'a str,
+    pub status: &'a str,
     pub metrics: FleetHeartbeatMetrics,
     pub usage: FleetHeartbeatUsage,
 }
