@@ -97,14 +97,14 @@ pub struct FleetHeartbeatUsage {
     pub executions_since_last_heartbeat: u64,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct FleetHeartbeatRequest {
-    pub agent_id: String,
-    pub tenant_id: String,
-    pub container_id: String,
+pub struct FleetHeartbeatRequest<'a> {
+    pub agent_id: &'a str,
+    pub tenant_id: &'a str,
+    pub container_id: &'a str,
     pub timestamp: String,
-    pub status: String,
+    pub status: &'a str,
     pub metrics: FleetHeartbeatMetrics,
     pub usage: FleetHeartbeatUsage,
 }
