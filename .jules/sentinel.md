@@ -12,3 +12,8 @@
 **Vulnerability:** Exposure of sensitive configuration values (like API keys and tokens) in logs and debugging output.
 **Learning:** Found in `crates/abot-ams/src/client.rs` (`AmsConfig`) and `crates/abot-core/src/config.rs` (`ChannelAdapterConfig`). By default, deriving `Debug` will output all fields of a struct. If a struct containing secrets is printed or logged using `{:?}`, those secrets are leaked in plaintext.
 **Prevention:** Do not use `#[derive(Debug)]` on structs containing sensitive information. Instead, manually implement `std::fmt::Debug` and explicitly redact the sensitive fields by formatting them as `***` or similar.
+
+## 2026-05-24 - [Path Traversal in Sandbox Allowed Paths Check]
+**Vulnerability:** Path traversal vulnerability escaping sandbox limitations via unresolved `..` components.
+**Learning:** Found in `crates/abot-sandbox/src/permissions.rs`. The `Path::starts_with` method in Rust performs a simple lexical component comparison and does not resolve `.` or `..` components in the path. An attacker could provide a path like `/tmp/sandbox/../etc/passwd`, which technically "starts with" the `/tmp/sandbox` prefix according to `starts_with`, thereby bypassing the sandbox directory constraints.
+**Prevention:** Always logically normalize paths by resolving `.` and `..` components before performing prefix-based path restriction checks (like `starts_with`) to securely evaluate directory traversal boundaries.
