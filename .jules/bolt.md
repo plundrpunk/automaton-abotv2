@@ -5,3 +5,7 @@
 ## 2026-05-04 - LLM Request Payload Optimization
 **Learning:** In the core LLM execution loop (`runtime.rs`), ownership of large message and tool arrays in `ToolCompletionRequest` forced full `.clone()` calls before each tool-completion request.
 **Action:** Prefer borrowed request fields like `&[T]` and `&str` for serialization-only payload structs so hot loops can reuse existing data without heap cloning.
+
+## 2024-05-10 - Execution Chunk Request Reference Optimization
+**Learning:** Frequent telemetry payloads like `ExecutionChunkRequest` in `runtime.rs` caused unnecessary memory allocations by constructing owned `String` fields on hot execution paths.
+**Action:** When defining Serde structs for frequent runtime logging/telemetry, use borrowed references (`&'a str`) to allow the caller to serialize existing or stack-local data without heap cloning.

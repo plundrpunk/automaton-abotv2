@@ -47,6 +47,14 @@ struct GenerationResult {
     output_tokens: u64,
 }
 
+struct ExecutionCompleteEvent {
+    tokens_in: u64,
+    tokens_out: u64,
+    duration_ms: u64,
+    model: String,
+    error: Option<String>,
+}
+
 #[derive(Debug, Clone, Copy)]
 pub enum AgentStatus {
     Booting,
@@ -325,17 +333,18 @@ impl Runtime {
             "Processing steering message"
         );
 
+        let timestamp = Utc::now().to_rfc3339();
         self.ams
             .emit_execution_chunk(
                 &fleet_execution_id,
                 &ExecutionChunkRequest {
-                    agent_id: state.agent_id.clone(),
-                    tenant_id: "default".to_string(),
-                    execution_id: fleet_execution_id.clone(),
-                    chunk_type: "start".to_string(),
-                    timestamp: Utc::now().to_rfc3339(),
+                    agent_id: state.agent_id.as_str(),
+                    tenant_id: "default",
+                    execution_id: fleet_execution_id.as_str(),
+                    chunk_type: "start",
+                    timestamp: &timestamp,
                     data: ExecutionChunkData {
-                        model: Some(requested_model.clone()),
+                        model: Some(requested_model.as_str()),
                         ..Default::default()
                     },
                 },
@@ -445,10 +454,34 @@ impl Runtime {
                 started_at,
             )
             .await
+        }?;
+
+        let timestamp = Utc::now().to_rfc3339();
+        let chunk_type = if final_event.error.is_some() {
+            "error"
+        } else {
+            "complete"
         };
 
         self.ams
-            .emit_execution_chunk(&fleet_execution_id, &final_event?)
+            .emit_execution_chunk(
+                &fleet_execution_id,
+                &ExecutionChunkRequest {
+                    agent_id: state.agent_id.as_str(),
+                    tenant_id: "default",
+                    execution_id: fleet_execution_id.as_str(),
+                    chunk_type,
+                    timestamp: &timestamp,
+                    data: ExecutionChunkData {
+                        tokens_in: Some(final_event.tokens_in),
+                        tokens_out: Some(final_event.tokens_out),
+                        duration_ms: Some(final_event.duration_ms),
+                        model: Some(&final_event.model),
+                        error: final_event.error.as_deref(),
+                        ..Default::default()
+                    },
+                },
+            )
             .await?;
         state.status = AgentStatus::Idle;
         state.current_execution = None;
@@ -463,7 +496,7 @@ impl Runtime {
         prompt: &str,
         requested_model: &str,
         started_at: std::time::Instant,
-    ) -> Result<ExecutionChunkRequest> {
+    ) -> Result<ExecutionCompleteEvent> {
         let result = self.generate_response(prompt).await;
         match result {
             Ok(result) => {
@@ -473,18 +506,19 @@ impl Runtime {
                 state.context_pct = ((state.token_count as f64 / state.max_tokens as f64) * 100.0)
                     .clamp(0.0, 100.0);
 
+                let timestamp = Utc::now().to_rfc3339();
                 self.ams
                     .emit_execution_chunk(
                         fleet_execution_id,
                         &ExecutionChunkRequest {
-                            agent_id: state.agent_id.clone(),
-                            tenant_id: "default".to_string(),
-                            execution_id: fleet_execution_id.to_string(),
-                            chunk_type: "output".to_string(),
-                            timestamp: Utc::now().to_rfc3339(),
+                            agent_id: state.agent_id.as_str(),
+                            tenant_id: "default",
+                            execution_id: fleet_execution_id,
+                            chunk_type: "output",
+                            timestamp: &timestamp,
                             data: ExecutionChunkData {
-                                content: Some(result.content.clone()),
-                                model: Some(result.model.clone()),
+                                content: Some(&result.content),
+                                model: Some(&result.model),
                                 ..Default::default()
                             },
                         },
@@ -498,35 +532,22 @@ impl Runtime {
                     "Steering message completed (single-shot)"
                 );
 
-                Ok(ExecutionChunkRequest {
-                    agent_id: state.agent_id.clone(),
-                    tenant_id: "default".to_string(),
-                    execution_id: fleet_execution_id.to_string(),
-                    chunk_type: "complete".to_string(),
-                    timestamp: Utc::now().to_rfc3339(),
-                    data: ExecutionChunkData {
-                        tokens_in: Some(result.input_tokens),
-                        tokens_out: Some(result.output_tokens),
-                        duration_ms: Some(started_at.elapsed().as_millis() as u64),
-                        model: Some(result.model),
-                        ..Default::default()
-                    },
+                Ok(ExecutionCompleteEvent {
+                    tokens_in: result.input_tokens,
+                    tokens_out: result.output_tokens,
+                    duration_ms: started_at.elapsed().as_millis() as u64,
+                    model: result.model,
+                    error: None,
                 })
             }
             Err(error) => {
                 warn!(error = %error, "Steering message failed (single-shot)");
-                Ok(ExecutionChunkRequest {
-                    agent_id: state.agent_id.clone(),
-                    tenant_id: "default".to_string(),
-                    execution_id: fleet_execution_id.to_string(),
-                    chunk_type: "error".to_string(),
-                    timestamp: Utc::now().to_rfc3339(),
-                    data: ExecutionChunkData {
-                        duration_ms: Some(started_at.elapsed().as_millis() as u64),
-                        error: Some(error.to_string()),
-                        model: Some(requested_model.to_string()),
-                        ..Default::default()
-                    },
+                Ok(ExecutionCompleteEvent {
+                    tokens_in: 0,
+                    tokens_out: 0,
+                    duration_ms: started_at.elapsed().as_millis() as u64,
+                    model: requested_model.to_string(),
+                    error: Some(error.to_string()),
                 })
             }
         }
@@ -564,7 +585,7 @@ impl Runtime {
         started_at: std::time::Instant,
         rollup_target: Option<(&str, &str)>,
         chat_session_id: Option<&str>,
-    ) -> Result<ExecutionChunkRequest> {
+    ) -> Result<ExecutionCompleteEvent> {
         let archetype = self
             .hand
             .as_ref()
@@ -634,18 +655,12 @@ impl Runtime {
                 Ok(r) => r,
                 Err(e) => {
                     warn!(error = %e, iteration = iteration, "Tool loop LLM call failed");
-                    return Ok(ExecutionChunkRequest {
-                        agent_id: state.agent_id.clone(),
-                        tenant_id: "default".to_string(),
-                        execution_id: fleet_execution_id.to_string(),
-                        chunk_type: "error".to_string(),
-                        timestamp: Utc::now().to_rfc3339(),
-                        data: ExecutionChunkData {
-                            duration_ms: Some(started_at.elapsed().as_millis() as u64),
-                            error: Some(e.to_string()),
-                            model: Some(requested_model.to_string()),
-                            ..Default::default()
-                        },
+                    return Ok(ExecutionCompleteEvent {
+                        tokens_in: 0,
+                        tokens_out: 0,
+                        duration_ms: started_at.elapsed().as_millis() as u64,
+                        model: requested_model.to_string(),
+                        error: Some(e.to_string()),
                     });
                 }
             };
@@ -692,18 +707,19 @@ impl Runtime {
                 );
 
                 // Emit tool use telemetry
+                let timestamp = Utc::now().to_rfc3339();
                 let _ = self
                     .ams
                     .emit_execution_chunk(
                         fleet_execution_id,
                         &ExecutionChunkRequest {
-                            agent_id: state.agent_id.clone(),
-                            tenant_id: "default".to_string(),
-                            execution_id: fleet_execution_id.to_string(),
-                            chunk_type: "tool_use".to_string(),
-                            timestamp: Utc::now().to_rfc3339(),
+                            agent_id: state.agent_id.as_str(),
+                            tenant_id: "default",
+                            execution_id: fleet_execution_id,
+                            chunk_type: "tool_use",
+                            timestamp: &timestamp,
                             data: ExecutionChunkData {
-                                tool_name: Some(func_name.to_string()),
+                                tool_name: Some(func_name),
                                 tool_input: Some(func_args.clone()),
                                 ..Default::default()
                             },
@@ -729,19 +745,20 @@ impl Runtime {
                 );
 
                 // Emit tool result telemetry
+                let timestamp = Utc::now().to_rfc3339();
                 let _ = self
                     .ams
                     .emit_execution_chunk(
                         fleet_execution_id,
                         &ExecutionChunkRequest {
-                            agent_id: state.agent_id.clone(),
-                            tenant_id: "default".to_string(),
-                            execution_id: fleet_execution_id.to_string(),
-                            chunk_type: "tool_result".to_string(),
-                            timestamp: Utc::now().to_rfc3339(),
+                            agent_id: state.agent_id.as_str(),
+                            tenant_id: "default",
+                            execution_id: fleet_execution_id,
+                            chunk_type: "tool_result",
+                            timestamp: &timestamp,
                             data: ExecutionChunkData {
-                                tool_name: Some(func_name.to_string()),
-                                tool_output: Some(tool_result.clone()),
+                                tool_name: Some(func_name),
+                                tool_output: Some(&tool_result),
                                 ..Default::default()
                             },
                         },
@@ -765,19 +782,20 @@ impl Runtime {
 
         // Emit final output
         if !final_text.is_empty() {
+            let timestamp = Utc::now().to_rfc3339();
             let _ = self
                 .ams
                 .emit_execution_chunk(
                     fleet_execution_id,
                     &ExecutionChunkRequest {
-                        agent_id: state.agent_id.clone(),
-                        tenant_id: "default".to_string(),
-                        execution_id: fleet_execution_id.to_string(),
-                        chunk_type: "output".to_string(),
-                        timestamp: Utc::now().to_rfc3339(),
+                        agent_id: state.agent_id.as_str(),
+                        tenant_id: "default",
+                        execution_id: fleet_execution_id,
+                        chunk_type: "output",
+                        timestamp: &timestamp,
                         data: ExecutionChunkData {
-                            content: Some(final_text.clone()),
-                            model: Some(requested_model.to_string()),
+                            content: Some(&final_text),
+                            model: Some(requested_model),
                             ..Default::default()
                         },
                     },
@@ -907,19 +925,12 @@ impl Runtime {
             }
         }
 
-        Ok(ExecutionChunkRequest {
-            agent_id: state.agent_id.clone(),
-            tenant_id: "default".to_string(),
-            execution_id: fleet_execution_id.to_string(),
-            chunk_type: "complete".to_string(),
-            timestamp: Utc::now().to_rfc3339(),
-            data: ExecutionChunkData {
-                tokens_in: Some(total_in_tokens),
-                tokens_out: Some(total_out_tokens),
-                duration_ms: Some(started_at.elapsed().as_millis() as u64),
-                model: Some(requested_model.to_string()),
-                ..Default::default()
-            },
+        Ok(ExecutionCompleteEvent {
+            tokens_in: total_in_tokens,
+            tokens_out: total_out_tokens,
+            duration_ms: started_at.elapsed().as_millis() as u64,
+            model: requested_model.to_string(),
+            error: None,
         })
     }
 
