@@ -27,27 +27,27 @@ pub struct RegisterExecutionResponse {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ExecutionChunkRequest {
-    pub agent_id: String,
-    pub tenant_id: String,
-    pub execution_id: String,
+pub struct ExecutionChunkRequest<'a> {
+    pub agent_id: &'a str,
+    pub tenant_id: &'a str,
+    pub execution_id: &'a str,
     #[serde(rename = "type")]
-    pub chunk_type: String,
-    pub timestamp: String,
-    pub data: ExecutionChunkData,
+    pub chunk_type: &'a str,
+    pub timestamp: &'a str,
+    pub data: ExecutionChunkData<'a>,
 }
 
 #[derive(Debug, Serialize, Default)]
 #[serde(rename_all = "camelCase")]
-pub struct ExecutionChunkData {
+pub struct ExecutionChunkData<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub content: Option<String>,
+    pub content: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub tool_name: Option<String>,
+    pub tool_name: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub tool_input: Option<serde_json::Value>,
+    pub tool_input: Option<&'a serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub tool_output: Option<String>,
+    pub tool_output: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tokens_in: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -55,9 +55,9 @@ pub struct ExecutionChunkData {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub duration_ms: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<String>,
+    pub error: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub model: Option<String>,
+    pub model: Option<&'a str>,
 }
 
 #[derive(Debug, Deserialize)]
