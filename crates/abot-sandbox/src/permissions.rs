@@ -8,8 +8,10 @@ pub fn normalize_path(path: &Path) -> PathBuf {
         match component {
             Component::ParentDir => {
                 let is_empty = normalized.as_os_str().is_empty();
-                let last_is_parent_dir = normalized.components().last() == Some(Component::ParentDir);
-                let last_is_root_dir = normalized.components().last() == Some(Component::RootDir);
+                let last_is_parent_dir =
+                    normalized.components().next_back() == Some(Component::ParentDir);
+                let last_is_root_dir =
+                    normalized.components().next_back() == Some(Component::RootDir);
 
                 if last_is_root_dir {
                     // Cannot go above root dir, just ignore ..
