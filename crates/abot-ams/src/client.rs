@@ -143,7 +143,7 @@ impl AmsClient {
     pub async fn emit_execution_chunk(
         &self,
         execution_id: &str,
-        chunk: &ExecutionChunkRequest,
+        chunk: &ExecutionChunkRequest<'_>,
     ) -> Result<ExecutionChunkResponse> {
         let url = format!(
             "{}/api/fleet/executions/{}/emit",
