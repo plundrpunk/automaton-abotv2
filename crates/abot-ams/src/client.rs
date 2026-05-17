@@ -126,7 +126,7 @@ impl AmsClient {
 
     pub async fn register_execution(
         &self,
-        request: &RegisterExecutionRequest,
+        request: &RegisterExecutionRequest<'_>,
     ) -> Result<RegisterExecutionResponse> {
         let url = format!("{}/api/fleet/executions/register", self.base_url);
         let resp = self
