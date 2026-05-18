@@ -316,12 +316,12 @@ impl Runtime {
         let execution = self
             .ams
             .register_execution(&RegisterExecutionRequest {
-                agent_id: state.agent_id.clone(),
-                tenant_id: "default".to_string(),
-                execution_id: fleet_execution_id.clone(),
-                agent_name: self.config.agent.name.clone(),
-                task: prompt.clone(),
-                model: requested_model.clone(),
+                agent_id: &state.agent_id,
+                tenant_id: "default",
+                execution_id: &fleet_execution_id,
+                agent_name: &self.config.agent.name,
+                task: &prompt,
+                model: &requested_model,
                 instance_id: None,
                 user_id: None,
             })

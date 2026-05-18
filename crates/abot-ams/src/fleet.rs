@@ -1,18 +1,22 @@
 use serde::{Deserialize, Serialize};
 
+/// Register execution payload.
+///
+/// BOLT OPTIMIZATION: Uses borrowed references (`&'a str`) instead of owned `String`s
+/// to prevent costly memory allocations (`.clone()`) on every request.
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RegisterExecutionRequest {
-    pub agent_id: String,
-    pub tenant_id: String,
-    pub execution_id: String,
-    pub agent_name: String,
-    pub task: String,
-    pub model: String,
+pub struct RegisterExecutionRequest<'a> {
+    pub agent_id: &'a str,
+    pub tenant_id: &'a str,
+    pub execution_id: &'a str,
+    pub agent_name: &'a str,
+    pub task: &'a str,
+    pub model: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub instance_id: Option<String>,
+    pub instance_id: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub user_id: Option<String>,
+    pub user_id: Option<&'a str>,
 }
 
 #[derive(Debug, Deserialize)]
