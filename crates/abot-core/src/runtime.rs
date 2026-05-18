@@ -68,6 +68,17 @@ pub enum AgentStatus {
     Dying,
 }
 
+impl AgentStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Booting => "booting",
+            Self::Idle => "idle",
+            Self::Working => "working",
+            Self::Dying => "dying",
+        }
+    }
+}
+
 impl std::fmt::Display for AgentStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -227,10 +238,10 @@ impl Runtime {
         loop {
             // Convert core RuntimeState → telemetry RuntimeState for heartbeat
             let telemetry_state = TelemetryState {
-                agent_id: state.agent_id.clone(),
+                agent_id: &state.agent_id,
                 context_pct: state.context_pct,
-                status: state.status.to_string(),
-                current_execution: state.current_execution.clone(),
+                status: state.status.as_str(),
+                current_execution: state.current_execution.as_deref(),
             };
 
             tokio::select! {
