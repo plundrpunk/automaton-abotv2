@@ -14,11 +14,11 @@ use crate::metrics::SystemMetrics;
 
 /// Runtime state snapshot sent with each heartbeat.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct RuntimeState {
-    pub agent_id: String,
+pub struct RuntimeState<'a> {
+    pub agent_id: &'a str,
     pub context_pct: f64,
-    pub status: String,
-    pub current_execution: Option<String>,
+    pub status: &'a str,
+    pub current_execution: Option<&'a str>,
 }
 
 /// Counters accumulated between heartbeats and flushed on every tick().
@@ -132,7 +132,7 @@ impl HeartbeatReporter {
     ///
     /// A fleet heartbeat is fired in parallel with the warden call, and its
     /// result is logged-and-ignored so a fleet outage cannot break lifecycle.
-    pub async fn tick(&self, state: &RuntimeState) -> Result<Directive> {
+    pub async fn tick(&self, state: &RuntimeState<'_>) -> Result<Directive> {
         debug!(
             agent_id = %state.agent_id,
             context_pct = state.context_pct,
@@ -141,16 +141,16 @@ impl HeartbeatReporter {
         );
 
         let warden_payload = HeartbeatPayload {
-            agent_id: state.agent_id.as_str(),
-            status: &state.status,
+            agent_id: state.agent_id,
+            status: state.status,
             context_pct: state.context_pct,
-            execution_id: state.current_execution.as_deref(),
+            execution_id: state.current_execution,
             metadata: None,
         };
 
         // Precompute owned strings
         let timestamp = chrono::Utc::now().to_rfc3339();
-        let status_str = normalize_fleet_status(&state.status);
+        let status_str = normalize_fleet_status(state.status);
 
         let fleet_payload = self.build_fleet_payload(state, &timestamp, &status_str);
 
@@ -199,7 +199,7 @@ impl HeartbeatReporter {
         let (tokens_in, tokens_out, executions) = self.counters.drain();
 
         FleetHeartbeatRequest {
-            agent_id: state.agent_id.as_str(),
+            agent_id: state.agent_id,
             tenant_id: self.tenant_id.as_str(),
             container_id: self.container_id.as_str(),
             timestamp,
@@ -265,10 +265,10 @@ mod tests {
     #[test]
     fn test_runtime_state_serialization() {
         let state = RuntimeState {
-            agent_id: "test-agent".to_string(),
+            agent_id: "test-agent",
             context_pct: 75.5,
-            status: "running".to_string(),
-            current_execution: Some("task-123".to_string()),
+            status: "running",
+            current_execution: Some("task-123"),
         };
 
         let json = serde_json::to_string(&state).unwrap();

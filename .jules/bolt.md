@@ -13,3 +13,7 @@
 ## 2024-05-18 - Register Execution Payload Optimization
 **Learning:** Registering executions happens frequently. Using owned types like String in RegisterExecutionRequest meant memory allocations via .clone() on every request.
 **Action:** When serializing frequent metric/telemetry or execution payloads with Serde, prefer reference lifetimes (&'a str) to avoid memory allocations and deep cloning of context strings.
+
+## 2026-05-18 - RuntimeState string allocation optimization
+**Learning:** `RuntimeState` struct was holding owned `String` fields while being instantiated constantly in `tick()` loops. Because this object was passed directly to `HeartbeatReporter` and immediately mapped out and dropped, it resulted in a pointless `clone()` of strings per tick.
+**Action:** Always prefer lifetimes and borrowed references for objects passed to synchronous or short-lived asynchronous boundaries where data ownership doesn't escape. Additionally, implemented an `as_str()` method on `AgentStatus` to prevent `to_string()` allocation on conversion.
