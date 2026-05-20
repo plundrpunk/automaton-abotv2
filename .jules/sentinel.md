@@ -17,8 +17,3 @@
 **Vulnerability:** Path traversal vulnerability via `.starts_with()` which does not resolve `.` or `..` components.
 **Learning:** Found in `crates/abot-sandbox/src/permissions.rs`. The sandbox access control used `path.starts_with(allowed)` directly on the input path. Since `starts_with` performs lexical component matching and not logical normalization, an attacker could supply a path like `/tmp/sandbox/../../etc/passwd` to bypass the check and access arbitrary files outside the allowed directory.
 **Prevention:** Always logically normalize paths to resolve `.` and `..` components prior to applying directory inclusion checks such as `starts_with()`.
-
-## 2026-06-25 - [Path Traversal in HTTP Client Path Construction]
-**Vulnerability:** Path traversal vulnerability due to unencoded variables interpolated directly into HTTP request paths.
-**Learning:** Found in `crates/abot-ams/src/client.rs`. The `emit_execution_chunk` method interpolated `execution_id` directly into the request URL (`format!("{}/api/fleet/executions/{}/emit", self.base_url, execution_id)`). If an attacker provided a crafted `execution_id` containing `../`, they could potentially access or manipulate unauthorized endpoints on the AMS server.
-**Prevention:** Always URL-encode path variables (e.g., using `urlencoding::encode()`) before appending or interpolating them into HTTP client request URLs.

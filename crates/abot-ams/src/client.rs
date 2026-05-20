@@ -145,11 +145,7 @@ impl AmsClient {
         execution_id: &str,
         chunk: &ExecutionChunkRequest<'_>,
     ) -> Result<ExecutionChunkResponse> {
-        let url = format!(
-            "{}/api/fleet/executions/{}/emit",
-            self.base_url,
-            urlencoding::encode(execution_id)
-        );
+        let url = execution_chunk_url(&self.base_url, execution_id);
         let resp = self
             .request(Method::POST, url)
             .json(chunk)
@@ -460,6 +456,14 @@ impl AmsClient {
     }
 }
 
+fn execution_chunk_url(base_url: &str, execution_id: &str) -> String {
+    format!(
+        "{}/api/fleet/executions/{}/emit",
+        base_url,
+        encode(execution_id)
+    )
+}
+
 /// A steering message from AMS (queued by DLPFC, admin, or system).
 fn default_guidance_type() -> String {
     "guidance".to_string()
@@ -537,7 +541,7 @@ impl std::fmt::Debug for AmsConfig {
 
 #[cfg(test)]
 mod tests {
-    use super::SteeringMessage;
+    use super::{SteeringMessage, execution_chunk_url};
 
     #[test]
     fn steering_message_deserializes_current_warden_shape() {
@@ -556,5 +560,14 @@ mod tests {
         assert_eq!(message.content_text(), "hello");
         assert_eq!(message.sender, "dashboard");
         assert_eq!(message.recipient, "agent");
+    }
+
+    #[test]
+    fn execution_chunk_url_encodes_path_segments() {
+        let url = execution_chunk_url("https://ams.example", "../chunk id");
+        assert_eq!(
+            url,
+            "https://ams.example/api/fleet/executions/..%2Fchunk%20id/emit"
+        );
     }
 }
