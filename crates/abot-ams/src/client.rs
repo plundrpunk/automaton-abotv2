@@ -147,7 +147,8 @@ impl AmsClient {
     ) -> Result<ExecutionChunkResponse> {
         let url = format!(
             "{}/api/fleet/executions/{}/emit",
-            self.base_url, execution_id
+            self.base_url,
+            urlencoding::encode(execution_id)
         );
         let resp = self
             .request(Method::POST, url)
