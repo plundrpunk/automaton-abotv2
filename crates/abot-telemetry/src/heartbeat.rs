@@ -222,9 +222,6 @@ impl HeartbeatReporter {
 
 /// Map the runtime status enum to the narrower fleet vocabulary
 /// (`idle` | `working` | `error`) expected by app/api/fleet.py.
-///
-/// BOLT OPTIMIZATION: Returns `&'static str` instead of `String` to prevent memory
-/// allocations (`to_string()`) on every heartbeat tick.
 fn normalize_fleet_status(status: &str) -> &'static str {
     if status.eq_ignore_ascii_case("working")
         || status.eq_ignore_ascii_case("running")
