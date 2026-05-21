@@ -17,3 +17,8 @@
 **Vulnerability:** Path traversal vulnerability via `.starts_with()` which does not resolve `.` or `..` components.
 **Learning:** Found in `crates/abot-sandbox/src/permissions.rs`. The sandbox access control used `path.starts_with(allowed)` directly on the input path. Since `starts_with` performs lexical component matching and not logical normalization, an attacker could supply a path like `/tmp/sandbox/../../etc/passwd` to bypass the check and access arbitrary files outside the allowed directory.
 **Prevention:** Always logically normalize paths to resolve `.` and `..` components prior to applying directory inclusion checks such as `starts_with()`.
+
+## 2026-06-25 - [String Slicing Panic in Content Formatting]
+**Vulnerability:** Denial of Service (DoS) due to runtime panics when truncating user-controlled strings at fixed byte boundaries without checking char boundaries.
+**Learning:** Found in `crates/abot-core/src/runtime.rs` where memory snippets and task descriptions were truncated using `&str[..N]`. Because UTF-8 multi-byte characters might straddle the N-th byte, this caused runtime panics when processing memories or tasks with non-ASCII text.
+**Prevention:** Always use safe character-based methods like `str.chars().take(N).collect::<String>()` or check `str.is_ascii()` before applying byte-index slicing.

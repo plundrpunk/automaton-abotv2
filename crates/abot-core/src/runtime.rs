@@ -1177,7 +1177,7 @@ impl Runtime {
                             serde_json::json!({
                                 "file_path": file_path,
                                 "tags": tags,
-                                "snippet": if snippet.len() > 200 { snippet[..200].to_string() } else { snippet },
+                                "snippet": if snippet.chars().count() > 200 { snippet.chars().take(200).collect::<String>() } else { snippet },
                                 "score": score,
                             })
                         }).collect();
@@ -1272,8 +1272,8 @@ impl Runtime {
                     if desc.is_empty() {
                         Some(format!("- {}", name))
                     } else {
-                        let short = if desc.len() > 160 {
-                            format!("{}...", &desc[..160])
+                        let short = if desc.chars().count() > 160 {
+                            format!("{}...", desc.chars().take(160).collect::<String>())
                         } else {
                             desc.to_string()
                         };
