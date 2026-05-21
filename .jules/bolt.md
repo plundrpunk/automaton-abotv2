@@ -17,3 +17,7 @@
 ## 2026-05-18 - RuntimeState string allocation optimization
 **Learning:** `RuntimeState` struct was holding owned `String` fields while being instantiated constantly in `tick()` loops. Because this object was passed directly to `HeartbeatReporter` and immediately mapped out and dropped, it resulted in a pointless `clone()` of strings per tick.
 **Action:** Always prefer lifetimes and borrowed references for objects passed to synchronous or short-lived asynchronous boundaries where data ownership doesn't escape. Additionally, implemented an `as_str()` method on `AgentStatus` to prevent `to_string()` allocation on conversion.
+
+## 2024-05-21 - Status Map String Allocation
+**Learning:** `normalize_fleet_status` was called every heartbeat tick and used `to_ascii_lowercase()` and `.to_string()`, generating unnecessary allocations per heartbeat for simple string mapping.
+**Action:** When mapping dynamic string inputs to a static vocabulary (e.g., telemetry status strings) in hot loops, avoid allocations by using `eq_ignore_ascii_case` and returning `&'static str` instead of allocating new `String`s.

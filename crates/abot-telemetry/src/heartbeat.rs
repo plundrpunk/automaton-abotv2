@@ -152,7 +152,7 @@ impl HeartbeatReporter {
         let timestamp = chrono::Utc::now().to_rfc3339();
         let status_str = normalize_fleet_status(state.status);
 
-        let fleet_payload = self.build_fleet_payload(state, &timestamp, &status_str);
+        let fleet_payload = self.build_fleet_payload(state, &timestamp, status_str);
 
         let (warden_res, fleet_res) = tokio::join!(
             self.ams_client.heartbeat(warden_payload),
@@ -222,12 +222,23 @@ impl HeartbeatReporter {
 
 /// Map the runtime status enum to the narrower fleet vocabulary
 /// (`idle` | `working` | `error`) expected by app/api/fleet.py.
-fn normalize_fleet_status(status: &str) -> String {
-    let s = status.to_ascii_lowercase();
-    match s.as_str() {
-        "working" | "running" | "busy" | "executing" => "working".to_string(),
-        "error" | "failed" | "crashed" => "error".to_string(),
-        _ => "idle".to_string(),
+///
+/// BOLT OPTIMIZATION: Returns `&'static str` instead of `String` to prevent memory
+/// allocations (`to_string()`) on every heartbeat tick.
+fn normalize_fleet_status(status: &str) -> &'static str {
+    if status.eq_ignore_ascii_case("working")
+        || status.eq_ignore_ascii_case("running")
+        || status.eq_ignore_ascii_case("busy")
+        || status.eq_ignore_ascii_case("executing")
+    {
+        "working"
+    } else if status.eq_ignore_ascii_case("error")
+        || status.eq_ignore_ascii_case("failed")
+        || status.eq_ignore_ascii_case("crashed")
+    {
+        "error"
+    } else {
+        "idle"
     }
 }
 
