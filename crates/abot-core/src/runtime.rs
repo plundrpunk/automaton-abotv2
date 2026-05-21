@@ -90,6 +90,13 @@ impl std::fmt::Display for AgentStatus {
     }
 }
 
+fn truncate_chars(value: &str, max_chars: usize) -> &str {
+    match value.char_indices().nth(max_chars) {
+        Some((idx, _)) => &value[..idx],
+        None => value,
+    }
+}
+
 impl Runtime {
     pub fn new(config: AbotConfig, shutdown_rx: mpsc::Receiver<()>) -> Result<Self> {
         // Convert core's config::AmsConfig → abot_ams::AmsConfig
@@ -1165,22 +1172,37 @@ impl Runtime {
                 let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(5) as u32;
                 match self.ams.search_memories(query, limit).await {
                     Ok(results) => {
-                        let summaries: Vec<serde_json::Value> = results.iter().map(|r| {
-                            let memory = r.get("memory").cloned().unwrap_or(serde_json::Value::Null);
-                            let file_path = memory.get("file_path")
-                                .and_then(|v| v.as_str()).unwrap_or("").to_string();
-                            let tags = memory.get("tags").cloned().unwrap_or(serde_json::Value::Array(vec![]));
-                            let snippet = r.get("content_snippet")
-                                .and_then(|v| v.as_str()).unwrap_or("").to_string();
-                            let score = r.get("relevance_score")
-                                .and_then(|v| v.as_f64()).unwrap_or(0.0);
-                            serde_json::json!({
-                                "file_path": file_path,
-                                "tags": tags,
-                                "snippet": if snippet.chars().count() > 200 { snippet.chars().take(200).collect::<String>() } else { snippet },
-                                "score": score,
+                        let summaries: Vec<serde_json::Value> = results
+                            .iter()
+                            .map(|r| {
+                                let memory =
+                                    r.get("memory").cloned().unwrap_or(serde_json::Value::Null);
+                                let file_path = memory
+                                    .get("file_path")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("")
+                                    .to_string();
+                                let tags = memory
+                                    .get("tags")
+                                    .cloned()
+                                    .unwrap_or(serde_json::Value::Array(vec![]));
+                                let snippet = r
+                                    .get("content_snippet")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("")
+                                    .to_string();
+                                let score = r
+                                    .get("relevance_score")
+                                    .and_then(|v| v.as_f64())
+                                    .unwrap_or(0.0);
+                                serde_json::json!({
+                                    "file_path": file_path,
+                                    "tags": tags,
+                                    "snippet": truncate_chars(&snippet, 200),
+                                    "score": score,
+                                })
                             })
-                        }).collect();
+                            .collect();
                         serde_json::json!({"results": summaries}).to_string()
                     }
                     Err(e) => serde_json::json!({"error": e.to_string()}).to_string(),
@@ -1272,8 +1294,9 @@ impl Runtime {
                     if desc.is_empty() {
                         Some(format!("- {}", name))
                     } else {
-                        let short = if desc.chars().count() > 160 {
-                            format!("{}...", desc.chars().take(160).collect::<String>())
+                        let truncated = truncate_chars(desc, 160);
+                        let short = if truncated.len() < desc.len() {
+                            format!("{}...", truncated)
                         } else {
                             desc.to_string()
                         };
@@ -1577,5 +1600,32 @@ impl Runtime {
 
         info!("Death ritual complete. Goodbye.");
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::truncate_chars;
+
+    #[test]
+    fn truncate_chars_respects_utf8_boundaries() {
+        let value = format!("{}étail", "a".repeat(199));
+        let truncated = truncate_chars(&value, 200);
+
+        assert_eq!(truncated.chars().count(), 200);
+        assert_eq!(truncated, format!("{}é", "a".repeat(199)));
+    }
+
+    #[test]
+    fn truncate_chars_supports_description_ellipsis() {
+        let description = format!("{}émore", "a".repeat(159));
+        let truncated = truncate_chars(&description, 160);
+        let short = if truncated.len() < description.len() {
+            format!("{}...", truncated)
+        } else {
+            description.clone()
+        };
+
+        assert_eq!(short, format!("{}é...", "a".repeat(159)));
     }
 }
