@@ -17,3 +17,7 @@
 ## 2026-05-18 - RuntimeState string allocation optimization
 **Learning:** `RuntimeState` struct was holding owned `String` fields while being instantiated constantly in `tick()` loops. Because this object was passed directly to `HeartbeatReporter` and immediately mapped out and dropped, it resulted in a pointless `clone()` of strings per tick.
 **Action:** Always prefer lifetimes and borrowed references for objects passed to synchronous or short-lived asynchronous boundaries where data ownership doesn't escape. Additionally, implemented an `as_str()` method on `AgentStatus` to prevent `to_string()` allocation on conversion.
+
+## 2024-05-18 - Avoid unnecessary .to_string() for static struct fields
+**Learning:** In hot path structs like `ExecutionCompleteEvent` where the `chunk_type` string acts essentially as an enum variant string ("complete", "error"), defining it as `String` means multiple runtime memory allocations (`.to_string()`).
+**Action:** When a struct field will only ever be populated by static string literals, type it as `&'static str` rather than `String` to completely avoid heap allocations and string copies. Ensure the consumer (such as serialization structs receiving the field via reference) also uses a lifetime bound.
