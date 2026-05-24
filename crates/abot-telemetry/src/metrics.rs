@@ -9,8 +9,6 @@ pub struct SystemMetrics {
     pub cpu_pct: f64,
     /// Uptime in seconds
     pub uptime_secs: u64,
-    /// Timestamp when metrics were collected
-    pub timestamp: String,
 }
 
 impl SystemMetrics {
@@ -23,7 +21,6 @@ impl SystemMetrics {
             ram_mb,
             cpu_pct,
             uptime_secs,
-            timestamp: chrono::Utc::now().to_rfc3339(),
         }
     }
 
