@@ -17,3 +17,7 @@
 ## 2026-05-18 - RuntimeState string allocation optimization
 **Learning:** `RuntimeState` struct was holding owned `String` fields while being instantiated constantly in `tick()` loops. Because this object was passed directly to `HeartbeatReporter` and immediately mapped out and dropped, it resulted in a pointless `clone()` of strings per tick.
 **Action:** Always prefer lifetimes and borrowed references for objects passed to synchronous or short-lived asynchronous boundaries where data ownership doesn't escape. Additionally, implemented an `as_str()` method on `AgentStatus` to prevent `to_string()` allocation on conversion.
+
+## 2024-05-26 - SystemMetrics unused timestamp string allocation
+**Learning:** `SystemMetrics::collect` was calling `chrono::Utc::now().to_rfc3339()` on every tick to create a `timestamp: String`. However, `FleetHeartbeatRequest` generates its own timestamp string right before payload assembly, meaning this `SystemMetrics` timestamp was entirely ignored and never used, resulting in a pointless heap allocation every telemetry heartbeat.
+**Action:** Avoid eagerly allocating diagnostic strings (like timestamps using `chrono::Utc::now()`) in internal helper structs (e.g., `SystemMetrics`) if those values are eventually discarded or overwritten during serialization. This prevents hidden, redundant heap allocations on hot paths like telemetry loops.

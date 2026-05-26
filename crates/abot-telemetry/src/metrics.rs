@@ -1,6 +1,12 @@
 use serde::{Deserialize, Serialize};
 
 /// System metrics snapshot
+///
+/// BOLT OPTIMIZATION: `timestamp: String` was removed from this struct.
+/// It previously eagerly allocated a string via `chrono::Utc::now().to_rfc3339()`
+/// on every tick, which was entirely unused because `FleetHeartbeatRequest`
+/// generated its own timestamp immediately afterwards. Removing this saves
+/// one unnecessary heap allocation per tick.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SystemMetrics {
     /// Memory usage in MB
@@ -9,8 +15,6 @@ pub struct SystemMetrics {
     pub cpu_pct: f64,
     /// Uptime in seconds
     pub uptime_secs: u64,
-    /// Timestamp when metrics were collected
-    pub timestamp: String,
 }
 
 impl SystemMetrics {
@@ -23,7 +27,6 @@ impl SystemMetrics {
             ram_mb,
             cpu_pct,
             uptime_secs,
-            timestamp: chrono::Utc::now().to_rfc3339(),
         }
     }
 
