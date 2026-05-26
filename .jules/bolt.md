@@ -17,3 +17,7 @@
 ## 2026-05-18 - RuntimeState string allocation optimization
 **Learning:** `RuntimeState` struct was holding owned `String` fields while being instantiated constantly in `tick()` loops. Because this object was passed directly to `HeartbeatReporter` and immediately mapped out and dropped, it resulted in a pointless `clone()` of strings per tick.
 **Action:** Always prefer lifetimes and borrowed references for objects passed to synchronous or short-lived asynchronous boundaries where data ownership doesn't escape. Additionally, implemented an `as_str()` method on `AgentStatus` to prevent `to_string()` allocation on conversion.
+
+## 2024-05-19 - Eager string allocations in SystemMetrics
+**Learning:** In a loop, eagerly allocating diagnostic strings (like timestamps using `chrono::Utc::now()`) inside an intermediate or short-lived structure when they are ignored or recreated for serialization is a significant performance anti-pattern. This happens with `SystemMetrics::collect` inside the agent heartbeat.
+**Action:** Avoid hidden, redundant heap allocations by stripping redundant fields (like timestamps) from intermediate logic objects. Always prefer explicitly providing these strings where they are actually consumed to guarantee they aren't computed redundantly.
