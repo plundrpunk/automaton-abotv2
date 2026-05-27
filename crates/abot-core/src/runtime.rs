@@ -97,6 +97,16 @@ fn truncate_chars(value: &str, max_chars: usize) -> &str {
     }
 }
 
+fn summarize_rollup_text(value: &str) -> String {
+    let truncated = truncate_chars(value, 500);
+
+    if truncated.len() < value.len() {
+        format!("{truncated}...")
+    } else {
+        value.to_string()
+    }
+}
+
 impl Runtime {
     pub fn new(config: AbotConfig, shutdown_rx: mpsc::Receiver<()>) -> Result<Self> {
         // Convert core's config::AmsConfig → abot_ams::AmsConfig
@@ -865,13 +875,7 @@ impl Runtime {
             // record, this steering is the live delivery so the parent
             // gets a ding on next-idle rather than having to poll.
             if let Some((parent_agent, parent_exec)) = rollup_target {
-                let summary: String = if final_text.chars().count() > 500 {
-                    let mut t: String = final_text.chars().take(500).collect();
-                    t.push_str("...");
-                    t
-                } else {
-                    final_text.clone()
-                };
+                let summary = summarize_rollup_text(&final_text);
                 let mut rollup_meta = serde_json::json!({
                     "parent_exec_id": parent_exec,
                     "child_exec_id": fleet_execution_id,
@@ -1605,7 +1609,7 @@ impl Runtime {
 
 #[cfg(test)]
 mod tests {
-    use super::truncate_chars;
+    use super::{summarize_rollup_text, truncate_chars};
 
     #[test]
     fn truncate_chars_respects_utf8_boundaries() {
@@ -1627,5 +1631,22 @@ mod tests {
         };
 
         assert_eq!(short, format!("{}é...", "a".repeat(159)));
+    }
+
+    #[test]
+    fn summarize_rollup_text_appends_ellipsis_after_500_chars() {
+        let value = format!("{}étail", "a".repeat(499));
+
+        assert_eq!(
+            summarize_rollup_text(&value),
+            format!("{}é...", "a".repeat(499))
+        );
+    }
+
+    #[test]
+    fn summarize_rollup_text_keeps_short_values_unchanged() {
+        let value = "short summary";
+
+        assert_eq!(summarize_rollup_text(value), value);
     }
 }
