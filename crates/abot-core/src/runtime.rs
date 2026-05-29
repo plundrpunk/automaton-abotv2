@@ -26,7 +26,7 @@ struct ExecutionCompleteEvent {
     pub duration_ms: Option<u64>,
     pub error: Option<String>,
     pub model: Option<String>,
-    pub chunk_type: String,
+    pub chunk_type: &'static str,
 }
 
 /// The main runtime event loop for the Abot.
@@ -207,11 +207,11 @@ impl Runtime {
             "container_id": self.heartbeat.container_id(),
         });
         let fleet_register_req = FleetRegisterAgentRequest {
-            agent_id: self.config.agent.id.clone(),
-            tenant_id: Some(self.heartbeat.tenant_id().to_string()),
-            agent_name: Some(self.config.agent.name.clone()),
-            instance_id: Some(self.heartbeat.container_id().to_string()),
-            metadata: fleet_metadata,
+            agent_id: &self.config.agent.id,
+            tenant_id: Some(self.heartbeat.tenant_id()),
+            agent_name: Some(self.config.agent.name.as_str()),
+            instance_id: Some(self.heartbeat.container_id()),
+            metadata: &fleet_metadata,
         };
         match self.ams.fleet_register_agent(&fleet_register_req).await {
             Ok(resp) => info!(
@@ -497,7 +497,7 @@ impl Runtime {
                     agent_id: &state.agent_id,
                     tenant_id: "default",
                     execution_id: &fleet_execution_id,
-                    chunk_type: &final_event.chunk_type,
+                    chunk_type: final_event.chunk_type,
                     timestamp: &timestamp,
                     data: ExecutionChunkData {
                         content: final_event.content.as_deref(),
@@ -566,7 +566,7 @@ impl Runtime {
                     tokens_out: Some(result.output_tokens),
                     duration_ms: Some(started_at.elapsed().as_millis() as u64),
                     model: Some(result.model),
-                    chunk_type: "complete".to_string(),
+                    chunk_type: "complete",
                     ..Default::default()
                 })
             }
@@ -576,7 +576,7 @@ impl Runtime {
                     duration_ms: Some(started_at.elapsed().as_millis() as u64),
                     error: Some(error.to_string()),
                     model: Some(requested_model.to_string()),
-                    chunk_type: "error".to_string(),
+                    chunk_type: "error",
                     ..Default::default()
                 })
             }
@@ -689,7 +689,7 @@ impl Runtime {
                         duration_ms: Some(started_at.elapsed().as_millis() as u64),
                         error: Some(e.to_string()),
                         model: Some(requested_model.to_string()),
-                        chunk_type: "error".to_string(),
+                        chunk_type: "error",
                         ..Default::default()
                     });
                 }
@@ -954,7 +954,7 @@ impl Runtime {
             tokens_out: Some(total_out_tokens),
             duration_ms: Some(started_at.elapsed().as_millis() as u64),
             model: Some(requested_model.to_string()),
-            chunk_type: "complete".to_string(),
+            chunk_type: "complete",
             ..Default::default()
         })
     }

@@ -413,7 +413,7 @@ impl AmsClient {
     /// Fleet agent registration — idempotent one-time call at birth.
     pub async fn fleet_register_agent(
         &self,
-        payload: &FleetRegisterAgentRequest,
+        payload: &FleetRegisterAgentRequest<'_>,
     ) -> Result<FleetRegisterAgentResponse> {
         let url = format!("{}/api/fleet/agents", self.base_url);
         debug!(url = %url, agent_id = %payload.agent_id, "Registering fleet agent");
