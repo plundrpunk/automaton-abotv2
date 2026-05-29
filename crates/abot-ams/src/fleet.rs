@@ -123,16 +123,16 @@ pub struct FleetHeartbeatResponse {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct FleetRegisterAgentRequest {
-    pub agent_id: String,
+pub struct FleetRegisterAgentRequest<'a> {
+    pub agent_id: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub tenant_id: Option<String>,
+    pub tenant_id: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub agent_name: Option<String>,
+    pub agent_name: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub instance_id: Option<String>,
+    pub instance_id: Option<&'a str>,
     #[serde(default)]
-    pub metadata: serde_json::Value,
+    pub metadata: &'a serde_json::Value,
 }
 
 #[derive(Debug, Deserialize)]
