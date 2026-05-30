@@ -349,7 +349,7 @@ impl Runtime {
                 execution_id: &fleet_execution_id,
                 agent_name: &self.config.agent.name,
                 task: &prompt,
-                model: &requested_model,
+                model: requested_model,
                 instance_id: None,
                 user_id: None,
             })
@@ -377,7 +377,7 @@ impl Runtime {
                     chunk_type: "start",
                     timestamp: &timestamp,
                     data: ExecutionChunkData {
-                        model: Some(requested_model.as_str()),
+                        model: Some(requested_model),
                         ..Default::default()
                     },
                 },
@@ -385,10 +385,6 @@ impl Runtime {
             .await?;
 
         let started_at = std::time::Instant::now();
-        let system_prompt = self
-            .hand
-            .as_ref()
-            .and_then(|hand| hand.system_prompt.clone());
 
         // Tools are enabled either by archetype (team-leads and orchestrators
         // always get the dispatch/wait/synthesize loop) or by AMS birth grants
@@ -464,14 +460,19 @@ impl Runtime {
             .as_ref()
             .map(|(a, e)| (a.as_str(), e.as_str()));
 
+        let system_prompt = self
+            .hand
+            .as_ref()
+            .and_then(|hand| hand.system_prompt.as_deref());
+
         let chat_session_id = chat_session_id_owned.as_deref();
         let final_event = if has_tools {
             self.run_tool_loop(
                 state,
                 &fleet_execution_id,
                 &prompt,
-                &requested_model,
-                system_prompt.as_deref(),
+                requested_model,
+                system_prompt,
                 started_at,
                 rollup_target,
                 chat_session_id,
@@ -483,7 +484,7 @@ impl Runtime {
                 state,
                 &fleet_execution_id,
                 &prompt,
-                &requested_model,
+                requested_model,
                 started_at,
             )
             .await
@@ -1478,11 +1479,11 @@ impl Runtime {
         let system_prompt = self
             .hand
             .as_ref()
-            .and_then(|hand| hand.system_prompt.clone());
+            .and_then(|hand| hand.system_prompt.as_deref());
 
         if let Some(bridge) = self.kilo_bridge() {
             let mode = self.kilo_mode();
-            let prompt_for_kilo = if let Some(system) = &system_prompt {
+            let prompt_for_kilo = if let Some(system) = system_prompt {
                 format!("{system}\n\nUser request:\n{prompt}")
             } else {
                 prompt.to_string()
@@ -1508,8 +1509,8 @@ impl Runtime {
                 prompt,
                 max_tokens: 4000,
                 role: "agent",
-                model: Some(&requested_model),
-                system_prompt: system_prompt.as_deref(),
+                model: Some(requested_model),
+                system_prompt,
                 temperature: None,
             })
             .await?;
@@ -1523,16 +1524,17 @@ impl Runtime {
         })
     }
 
-    fn requested_model(&self) -> String {
-        if let Some(hand) = &self.hand
-            && !hand.manifest.hand.default_model.trim().is_empty()
-        {
-            return hand.manifest.hand.default_model.trim().to_string();
+    fn requested_model(&self) -> &str {
+        if let Some(hand) = &self.hand {
+            let default_model = hand.manifest.hand.default_model.trim();
+            if !default_model.is_empty() {
+                return default_model;
+            }
         }
 
         match self.config.llm.provider {
-            crate::config::LlmProvider::Kilo => "kilo".to_string(),
-            crate::config::LlmProvider::Direct => "ams-agent".to_string(),
+            crate::config::LlmProvider::Kilo => "kilo",
+            crate::config::LlmProvider::Direct => "ams-agent",
         }
     }
 
