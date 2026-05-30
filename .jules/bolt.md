@@ -1,3 +1,7 @@
 ## 2024-12-07 - Avoid heap allocations in network serialization structs
 **Learning:** Rust `serde` payload structs often serialize dynamic data like timestamps or configurations without owning them. When those strings are generated on hot loops or in frequent intervals (like telemetry or execution logging), wrapping them as `&'a str` inside the payload object and letting the caller generate or own the String prevents redundant `.clone()` operations and reduces heap allocations.
 **Action:** Use lifetimes like `<'a>` when creating temporary JSON serializable structures passed over the network for performance efficiency.
+
+## 2024-12-08 - Eliminate unnecessary string clones for system prompts
+**Learning:** Calling `.clone()` on large `Option<String>` fields (like system prompts) just to extract an `Option<&str>` via `.as_deref()` later causes massive, redundant heap allocations and memory churn on every task execution. Furthermore, cloning a string and immediately discarding it without use wastes CPU and memory. Returning `&str` instead of `String` from getter methods in frequent execution loops also eliminates continuous heap allocations.
+**Action:** When extracting a borrowed string from an `Option<String>` field that only needs read access, use `.as_deref()` directly instead of `.clone()`. Optimize frequent getter methods to return borrowed references (`&str`) to avoid `to_string()` allocations in hot paths.
