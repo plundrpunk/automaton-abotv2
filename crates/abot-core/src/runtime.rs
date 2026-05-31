@@ -385,10 +385,13 @@ impl Runtime {
             .await?;
 
         let started_at = std::time::Instant::now();
+
+        // BOLT OPTIMIZATION: Use .as_deref() instead of .clone() to avoid deep-copying
+        // potentially large system prompt strings on every execution loop.
         let system_prompt = self
             .hand
             .as_ref()
-            .and_then(|hand| hand.system_prompt.clone());
+            .and_then(|hand| hand.system_prompt.as_deref());
 
         // Tools are enabled either by archetype (team-leads and orchestrators
         // always get the dispatch/wait/synthesize loop) or by AMS birth grants
@@ -1475,10 +1478,12 @@ impl Runtime {
     }
 
     async fn generate_response(&self, prompt: &str) -> Result<GenerationResult> {
+        // BOLT OPTIMIZATION: Use .as_deref() instead of .clone() to avoid deep-copying
+        // potentially large system prompt strings on every execution loop.
         let system_prompt = self
             .hand
             .as_ref()
-            .and_then(|hand| hand.system_prompt.clone());
+            .and_then(|hand| hand.system_prompt.as_deref());
 
         if let Some(bridge) = self.kilo_bridge() {
             let mode = self.kilo_mode();
