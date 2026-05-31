@@ -474,7 +474,7 @@ impl Runtime {
                 &fleet_execution_id,
                 &prompt,
                 &requested_model,
-                system_prompt.as_deref(),
+                system_prompt,
                 started_at,
                 rollup_target,
                 chat_session_id,
@@ -1514,7 +1514,7 @@ impl Runtime {
                 max_tokens: 4000,
                 role: "agent",
                 model: Some(&requested_model),
-                system_prompt: system_prompt.as_deref(),
+                system_prompt,
                 temperature: None,
             })
             .await?;
