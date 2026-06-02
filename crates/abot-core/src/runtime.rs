@@ -388,7 +388,7 @@ impl Runtime {
         let system_prompt = self
             .hand
             .as_ref()
-            .and_then(|hand| hand.system_prompt.clone());
+            .and_then(|hand| hand.system_prompt.as_deref());
 
         // Tools are enabled either by archetype (team-leads and orchestrators
         // always get the dispatch/wait/synthesize loop) or by AMS birth grants
@@ -471,7 +471,7 @@ impl Runtime {
                 &fleet_execution_id,
                 &prompt,
                 &requested_model,
-                system_prompt.as_deref(),
+                system_prompt,
                 started_at,
                 rollup_target,
                 chat_session_id,
@@ -1478,7 +1478,7 @@ impl Runtime {
         let system_prompt = self
             .hand
             .as_ref()
-            .and_then(|hand| hand.system_prompt.clone());
+            .and_then(|hand| hand.system_prompt.as_deref());
 
         if let Some(bridge) = self.kilo_bridge() {
             let mode = self.kilo_mode();
@@ -1509,7 +1509,7 @@ impl Runtime {
                 max_tokens: 4000,
                 role: "agent",
                 model: Some(&requested_model),
-                system_prompt: system_prompt.as_deref(),
+                system_prompt,
                 temperature: None,
             })
             .await?;
