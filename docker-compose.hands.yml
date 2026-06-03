@@ -12,69 +12,15 @@ x-hand-service: &hand-service
   networks:
     - ams_network
 
+x-hand-volumes: &hand-volumes
+  - ${AUTOMATON_HOST_AMS_DIR:-./ams}:/home/andrew/ams:ro
+
 networks:
   ams_network:
     external: true
     name: ams_ams_network
 
 services:
-  # === Original 8 specialist hands ===
-  general-assistant:
-    <<: *hand-service
-    environment:
-      <<: *hand-env
-      AUTOMATON_AGENT_NAME: general-assistant
-      AUTOMATON_AGENT_ID: general-assistant
-
-  researcher:
-    <<: *hand-service
-    environment:
-      <<: *hand-env
-      AUTOMATON_AGENT_NAME: researcher
-      AUTOMATON_AGENT_ID: researcher
-
-  backend-engineer:
-    <<: *hand-service
-    environment:
-      <<: *hand-env
-      AUTOMATON_AGENT_NAME: backend-engineer
-      AUTOMATON_AGENT_ID: backend-engineer
-
-  frontend-engineer:
-    <<: *hand-service
-    environment:
-      <<: *hand-env
-      AUTOMATON_AGENT_NAME: frontend-engineer
-      AUTOMATON_AGENT_ID: frontend-engineer
-
-  technical-writer:
-    <<: *hand-service
-    environment:
-      <<: *hand-env
-      AUTOMATON_AGENT_NAME: technical-writer
-      AUTOMATON_AGENT_ID: technical-writer
-
-  memory-curator:
-    <<: *hand-service
-    environment:
-      <<: *hand-env
-      AUTOMATON_AGENT_NAME: memory-curator
-      AUTOMATON_AGENT_ID: memory-curator
-
-  data-analyst:
-    <<: *hand-service
-    environment:
-      <<: *hand-env
-      AUTOMATON_AGENT_NAME: data-analyst
-      AUTOMATON_AGENT_ID: data-analyst
-
-  task-runner:
-    <<: *hand-service
-    environment:
-      <<: *hand-env
-      AUTOMATON_AGENT_NAME: task-runner
-      AUTOMATON_AGENT_ID: task-runner
-
   # === Prime body bound to the seeded AMS root Abot head ===
   automaton-abot-prime-v2:
     <<: *hand-service
@@ -83,6 +29,7 @@ services:
       AUTOMATON_AGENT_NAME: "Automaton-Abot Prime V2"
       AUTOMATON_AGENT_ID: "Automaton-Abot Prime V2"
       AUTOMATON_HAND_DIR: ./hands/automaton-abot-prime-v2
+    volumes: *hand-volumes
 
   # === 13 Team Lead hands (domain knowledge maintainers) ===
   tl-engineering:
@@ -91,6 +38,7 @@ services:
       <<: *hand-env
       AUTOMATON_AGENT_NAME: tl-engineering
       AUTOMATON_AGENT_ID: tl-engineering
+    volumes: *hand-volumes
 
   tl-marketing:
     <<: *hand-service
@@ -98,6 +46,7 @@ services:
       <<: *hand-env
       AUTOMATON_AGENT_NAME: tl-marketing
       AUTOMATON_AGENT_ID: tl-marketing
+    volumes: *hand-volumes
 
   tl-specialized:
     <<: *hand-service
@@ -105,6 +54,7 @@ services:
       <<: *hand-env
       AUTOMATON_AGENT_NAME: tl-specialized
       AUTOMATON_AGENT_ID: tl-specialized
+    volumes: *hand-volumes
 
   tl-gamedev:
     <<: *hand-service
@@ -112,6 +62,7 @@ services:
       <<: *hand-env
       AUTOMATON_AGENT_NAME: tl-gamedev
       AUTOMATON_AGENT_ID: tl-gamedev
+    volumes: *hand-volumes
 
   tl-design:
     <<: *hand-service
@@ -119,6 +70,7 @@ services:
       <<: *hand-env
       AUTOMATON_AGENT_NAME: tl-design
       AUTOMATON_AGENT_ID: tl-design
+    volumes: *hand-volumes
 
   tl-testing:
     <<: *hand-service
@@ -126,6 +78,7 @@ services:
       <<: *hand-env
       AUTOMATON_AGENT_NAME: tl-testing
       AUTOMATON_AGENT_ID: tl-testing
+    volumes: *hand-volumes
 
   tl-sales:
     <<: *hand-service
@@ -133,6 +86,7 @@ services:
       <<: *hand-env
       AUTOMATON_AGENT_NAME: tl-sales
       AUTOMATON_AGENT_ID: tl-sales
+    volumes: *hand-volumes
 
   tl-paid-media:
     <<: *hand-service
@@ -140,6 +94,7 @@ services:
       <<: *hand-env
       AUTOMATON_AGENT_NAME: tl-paid-media
       AUTOMATON_AGENT_ID: tl-paid-media
+    volumes: *hand-volumes
 
   tl-project-mgmt:
     <<: *hand-service
@@ -147,6 +102,7 @@ services:
       <<: *hand-env
       AUTOMATON_AGENT_NAME: tl-project-mgmt
       AUTOMATON_AGENT_ID: tl-project-mgmt
+    volumes: *hand-volumes
 
   tl-spatial:
     <<: *hand-service
@@ -154,6 +110,7 @@ services:
       <<: *hand-env
       AUTOMATON_AGENT_NAME: tl-spatial
       AUTOMATON_AGENT_ID: tl-spatial
+    volumes: *hand-volumes
 
   tl-support:
     <<: *hand-service
@@ -161,6 +118,7 @@ services:
       <<: *hand-env
       AUTOMATON_AGENT_NAME: tl-support
       AUTOMATON_AGENT_ID: tl-support
+    volumes: *hand-volumes
 
   tl-product:
     <<: *hand-service
@@ -168,6 +126,7 @@ services:
       <<: *hand-env
       AUTOMATON_AGENT_NAME: tl-product
       AUTOMATON_AGENT_ID: tl-product
+    volumes: *hand-volumes
 
   tl-academic:
     <<: *hand-service
@@ -175,3 +134,4 @@ services:
       <<: *hand-env
       AUTOMATON_AGENT_NAME: tl-academic
       AUTOMATON_AGENT_ID: tl-academic
+    volumes: *hand-volumes
