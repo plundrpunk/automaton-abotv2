@@ -1,7 +1,6 @@
 x-hand-env: &hand-env
   AUTOMATON_AMS_URL: ${AUTOMATON_AMS_URL:-http://ams-server:3001}
   AUTOMATON_AMS_API_KEY: ${AUTOMATON_AMS_API_KEY:-}
-  AUTOMATON_ENABLE_TOOLS: ${AUTOMATON_ENABLE_TOOLS:-true}
 
 x-hand-service: &hand-service
   build:
@@ -12,6 +11,9 @@ x-hand-service: &hand-service
   restart: unless-stopped
   networks:
     - ams_network
+
+x-hand-volumes: &hand-volumes
+  - ${AUTOMATON_HOST_AMS_DIR:-./ams}:/home/andrew/ams:ro
 
 networks:
   ams_network:
@@ -27,8 +29,7 @@ services:
       AUTOMATON_AGENT_NAME: "Automaton-Abot Prime V2"
       AUTOMATON_AGENT_ID: "Automaton-Abot Prime V2"
       AUTOMATON_HAND_DIR: ./hands/automaton-abot-prime-v2
-    volumes:
-      - /home/andrew/ams:/home/andrew/ams:ro
+    volumes: *hand-volumes
 
   # === 13 Team Lead hands (domain knowledge maintainers) ===
   tl-engineering:
@@ -37,8 +38,7 @@ services:
       <<: *hand-env
       AUTOMATON_AGENT_NAME: tl-engineering
       AUTOMATON_AGENT_ID: tl-engineering
-    volumes:
-      - /home/andrew/ams:/home/andrew/ams:ro
+    volumes: *hand-volumes
 
   tl-marketing:
     <<: *hand-service
@@ -46,8 +46,7 @@ services:
       <<: *hand-env
       AUTOMATON_AGENT_NAME: tl-marketing
       AUTOMATON_AGENT_ID: tl-marketing
-    volumes:
-      - /home/andrew/ams:/home/andrew/ams:ro
+    volumes: *hand-volumes
 
   tl-specialized:
     <<: *hand-service
@@ -55,8 +54,7 @@ services:
       <<: *hand-env
       AUTOMATON_AGENT_NAME: tl-specialized
       AUTOMATON_AGENT_ID: tl-specialized
-    volumes:
-      - /home/andrew/ams:/home/andrew/ams:ro
+    volumes: *hand-volumes
 
   tl-gamedev:
     <<: *hand-service
@@ -64,8 +62,7 @@ services:
       <<: *hand-env
       AUTOMATON_AGENT_NAME: tl-gamedev
       AUTOMATON_AGENT_ID: tl-gamedev
-    volumes:
-      - /home/andrew/ams:/home/andrew/ams:ro
+    volumes: *hand-volumes
 
   tl-design:
     <<: *hand-service
@@ -73,8 +70,7 @@ services:
       <<: *hand-env
       AUTOMATON_AGENT_NAME: tl-design
       AUTOMATON_AGENT_ID: tl-design
-    volumes:
-      - /home/andrew/ams:/home/andrew/ams:ro
+    volumes: *hand-volumes
 
   tl-testing:
     <<: *hand-service
@@ -82,8 +78,7 @@ services:
       <<: *hand-env
       AUTOMATON_AGENT_NAME: tl-testing
       AUTOMATON_AGENT_ID: tl-testing
-    volumes:
-      - /home/andrew/ams:/home/andrew/ams:ro
+    volumes: *hand-volumes
 
   tl-sales:
     <<: *hand-service
@@ -91,8 +86,7 @@ services:
       <<: *hand-env
       AUTOMATON_AGENT_NAME: tl-sales
       AUTOMATON_AGENT_ID: tl-sales
-    volumes:
-      - /home/andrew/ams:/home/andrew/ams:ro
+    volumes: *hand-volumes
 
   tl-paid-media:
     <<: *hand-service
@@ -100,8 +94,7 @@ services:
       <<: *hand-env
       AUTOMATON_AGENT_NAME: tl-paid-media
       AUTOMATON_AGENT_ID: tl-paid-media
-    volumes:
-      - /home/andrew/ams:/home/andrew/ams:ro
+    volumes: *hand-volumes
 
   tl-project-mgmt:
     <<: *hand-service
@@ -109,8 +102,7 @@ services:
       <<: *hand-env
       AUTOMATON_AGENT_NAME: tl-project-mgmt
       AUTOMATON_AGENT_ID: tl-project-mgmt
-    volumes:
-      - /home/andrew/ams:/home/andrew/ams:ro
+    volumes: *hand-volumes
 
   tl-spatial:
     <<: *hand-service
@@ -118,8 +110,7 @@ services:
       <<: *hand-env
       AUTOMATON_AGENT_NAME: tl-spatial
       AUTOMATON_AGENT_ID: tl-spatial
-    volumes:
-      - /home/andrew/ams:/home/andrew/ams:ro
+    volumes: *hand-volumes
 
   tl-support:
     <<: *hand-service
@@ -127,8 +118,7 @@ services:
       <<: *hand-env
       AUTOMATON_AGENT_NAME: tl-support
       AUTOMATON_AGENT_ID: tl-support
-    volumes:
-      - /home/andrew/ams:/home/andrew/ams:ro
+    volumes: *hand-volumes
 
   tl-product:
     <<: *hand-service
@@ -136,8 +126,7 @@ services:
       <<: *hand-env
       AUTOMATON_AGENT_NAME: tl-product
       AUTOMATON_AGENT_ID: tl-product
-    volumes:
-      - /home/andrew/ams:/home/andrew/ams:ro
+    volumes: *hand-volumes
 
   tl-academic:
     <<: *hand-service
@@ -145,5 +134,4 @@ services:
       <<: *hand-env
       AUTOMATON_AGENT_NAME: tl-academic
       AUTOMATON_AGENT_ID: tl-academic
-    volumes:
-      - /home/andrew/ams:/home/andrew/ams:ro
+    volumes: *hand-volumes

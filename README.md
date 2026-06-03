@@ -84,13 +84,15 @@ docker run --rm -it \
   abot
 ```
 
-### Run all 8 shipped bodies
+### Run the compose hand fleet
 
 ```bash
 docker compose -f docker-compose.hands.yml up --build -d
 ```
 
-This spins up one container per body: `general-assistant`, `researcher`, `backend-engineer`, `frontend-engineer`, `technical-writer`, `memory-curator`, `data-analyst`, `task-runner`.
+This spins up the current always-on fleet: `automaton-abot-prime-v2` plus the 13 `tl-*` hand containers.
+
+If the compose fleet needs access to a host AMS checkout, point `AUTOMATON_HOST_AMS_DIR` at that host path before launching. The shared mount defaults to `./ams`, which keeps the checked-in compose file portable across hosts.
 
 ## Shipped Bodies
 
@@ -137,6 +139,7 @@ See [`.env.example`](.env.example) for the full list. The critical ones:
 | `AUTOMATON_AMS_API_KEY` | (none) | API key for AMS auth |
 | `AUTOMATON_AGENT_NAME` | from config | Body name (must match AMS head) |
 | `AUTOMATON_AGENT_ID` | from config | Agent ID (usually same as name) |
+| `AUTOMATON_HOST_AMS_DIR` | `./ams` | Optional host path mounted read-only at `/home/andrew/ams` for the compose hand fleet |
 
 ## License
 
