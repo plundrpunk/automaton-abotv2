@@ -880,7 +880,9 @@ impl Runtime {
                     "parent_exec_id": parent_exec,
                     "child_exec_id": fleet_execution_id,
                     "child_agent_id": state.agent_id,
-                    "memory_id": memory_id.clone().unwrap_or_default(),
+                    // BOLT OPTIMIZATION: Avoid heap allocation of cloning memory_id.
+                    // Using as_deref() prevents a redundant `.clone()` call on Option<String>.
+                    "memory_id": memory_id.as_deref().unwrap_or_default(),
                 });
                 // Thread the dashboard chat session all the way back up so
                 // the parent's rollup-triggered synthesis turn can post
