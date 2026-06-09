@@ -39,6 +39,15 @@ This is the **body**. AMS is the **head**.
 - **WASM** (Wasmtime) sandboxes the code each body runs
 - **AMS** decides what the body is allowed to do (trust grants, not self-asserted)
 
+## Automation Scope Note
+
+This repository is a Rust runtime and CLI workspace. It does not ship a web UI,
+frontend surface, or browser-facing design layer in this repo.
+
+For automation routing, treat `automaton-abotv2` as a backend/runtime target,
+not a Palette or frontend-UX target. UI-only review or accessibility passes
+should go to repos that actually contain the relevant frontend code.
+
 ## Trust Boundary
 
 The body sends **claims** (who it is). AMS returns **grants** (what it can do).
