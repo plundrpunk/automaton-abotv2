@@ -334,7 +334,7 @@ impl Runtime {
         state: &mut RuntimeState,
         message: SteeringMessage,
     ) -> Result<()> {
-        let prompt = message.content_text().trim().to_string();
+        let prompt = message.content_text().trim().to_owned();
         if prompt.is_empty() {
             return Ok(());
         }
