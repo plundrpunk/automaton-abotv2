@@ -417,22 +417,22 @@ impl Runtime {
         // dashboard-initiated turn. We pluck it once here and thread it
         // through run_tool_loop; on completion the runtime posts its
         // synthesis back to that dashboard chat session.
-        let chat_session_id_owned: Option<String> = incoming_meta
+        // ⚡ Bolt Optimization: Replace unconditionally cloned `Option<String>` strings
+        // with `Option<&str>` for read-only metadata fields to prevent heap allocations
+        // on hot paths where execution messages are dispatched.
+        let chat_session_id = incoming_meta
             .and_then(|m| m.get("chat_session_id"))
-            .and_then(|v| v.as_str())
-            .map(str::to_string);
+            .and_then(|v| v.as_str());
         let (rollup_target_owned, prompt) = match message.msg_type.as_str() {
             "task" => {
                 let parent = incoming_meta
                     .and_then(|m| m.get("parent_agent_id"))
-                    .and_then(|v| v.as_str())
-                    .map(str::to_string);
+                    .and_then(|v| v.as_str());
                 let parent_exec = incoming_meta
                     .and_then(|m| m.get("parent_exec_id"))
-                    .and_then(|v| v.as_str())
-                    .map(str::to_string);
+                    .and_then(|v| v.as_str());
                 let target = match (parent, parent_exec) {
-                    (Some(a), Some(e)) => Some((a, e)),
+                    (Some(a), Some(e)) => Some((a.to_string(), e.to_string())),
                     _ => None,
                 };
                 (target, prompt)
@@ -464,7 +464,6 @@ impl Runtime {
             .as_ref()
             .map(|(a, e)| (a.as_str(), e.as_str()));
 
-        let chat_session_id = chat_session_id_owned.as_deref();
         let final_event = if has_tools {
             self.run_tool_loop(
                 state,
