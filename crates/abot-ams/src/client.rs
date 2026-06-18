@@ -509,10 +509,10 @@ pub struct SteeringMessage {
 }
 
 impl SteeringMessage {
-    pub fn content_text(&self) -> String {
+    pub fn content_text(&self) -> std::borrow::Cow<'_, str> {
         match &self.content {
-            serde_json::Value::String(text) => text.clone(),
-            other => other.to_string(),
+            serde_json::Value::String(text) => std::borrow::Cow::Borrowed(text),
+            other => std::borrow::Cow::Owned(other.to_string()),
         }
     }
 }
