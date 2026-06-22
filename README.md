@@ -103,6 +103,14 @@ This spins up the current always-on fleet: `automaton-abot-prime-v2` plus the 13
 
 If the compose fleet needs access to a host AMS checkout, point `AUTOMATON_HOST_AMS_DIR` at that host path before launching. The shared mount defaults to `./ams`, which keeps the checked-in compose file portable across hosts.
 
+## Automation Scope
+
+This repository is a Rust runtime and CLI workspace. It does not ship a browser UI, web app, or end-user frontend surface inside this repo.
+
+The `hands/frontend-engineer/` body is an agent persona definition for work it may do elsewhere. It is not a frontend codebase for `automaton-abotv2` itself.
+
+If an automation pass is limited to UI, UX, accessibility, CSS, or browser-only changes, it should be redirected to the actual frontend repository instead of opening a no-op PR here.
+
 ## Shipped Bodies
 
 Each body lives in `hands/<name>/` with:
