@@ -1,0 +1,41 @@
+name: PR Merge Gate
+
+on:
+  pull_request_target:
+    branches: [ master ]
+    types: [opened, synchronize, reopened, labeled, unlabeled, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  pr-merge-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate PR risk labels
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const labels = (context.payload.pull_request.labels || []).map(label => label.name);
+            const riskLabels = ["risk:low", "risk:normal", "risk:high"];
+            const appliedRiskLabels = riskLabels.filter(label => labels.includes(label));
+
+            if (appliedRiskLabels.length !== 1) {
+              core.setFailed(
+                `PR must have exactly one risk label (${riskLabels.join(", ")}). Current labels: ${labels.join(", ") || "(none)"}.`
+              );
+              return;
+            }
+
+            if (appliedRiskLabels[0] === "risk:normal" && !labels.includes("reviewed-ok")) {
+              core.setFailed("PRs labeled risk:normal require the reviewed-ok label before merge.");
+              return;
+            }
+
+            if (appliedRiskLabels[0] === "risk:high" && !labels.includes("human-approved")) {
+              core.setFailed("PRs labeled risk:high require the human-approved label before merge.");
+              return;
+            }
+
+            core.notice(`Risk gate satisfied with ${appliedRiskLabels[0]}.`);
