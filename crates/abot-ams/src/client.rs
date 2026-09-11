@@ -1,6 +1,7 @@
 use anyhow::Result;
 use reqwest::Client;
 use reqwest::Method;
+use reqwest::StatusCode;
 use std::time::Duration;
 use tracing::debug;
 use urlencoding::encode;
@@ -390,6 +391,19 @@ impl AmsClient {
         Ok(resp)
     }
 
+    /// Read the AMS goals dashboard/task board.
+    pub async fn get_task_board(&self) -> Result<serde_json::Value> {
+        let url = format!("{}/api/v1/goals/dashboard", self.base_url);
+        let resp = self
+            .request(Method::GET, url)
+            .send()
+            .await?
+            .error_for_status()?
+            .json::<serde_json::Value>()
+            .await?;
+        Ok(resp)
+    }
+
     /// Fleet heartbeat — populates the in-memory container_heartbeats +
     /// fleet_registered_agents maps in `app/api/fleet.py`. This is what
     /// surfaces agents on `/api/fleet/status`.
@@ -446,6 +460,96 @@ impl AmsClient {
             .json::<serde_json::Value>()
             .await?;
         Ok(resp)
+    }
+
+    /// Find a child Observatory execution by Warden dispatch correlation.
+    ///
+    /// Alive specialists only receive a queued Warden message immediately;
+    /// their execution id is created later when they poll and register. This
+    /// lookup bridges that gap for TL fan-in.
+    pub async fn find_execution_by_lineage(
+        &self,
+        correlation_id: Option<&str>,
+        parent_execution_id: Option<&str>,
+        agent_id: Option<&str>,
+    ) -> Result<Option<serde_json::Value>> {
+        let mut url = format!("{}/observatory/lookup/executions?limit=20", self.base_url);
+        if let Some(corr) = correlation_id {
+            url.push_str("&correlation_id=");
+            url.push_str(&urlencoding::encode(corr));
+        }
+        if let Some(parent) = parent_execution_id {
+            url.push_str("&parent_execution_id=");
+            url.push_str(&urlencoding::encode(parent));
+        }
+        if let Some(agent) = agent_id {
+            url.push_str("&agent_id=");
+            url.push_str(&urlencoding::encode(agent));
+        }
+        let resp = self
+            .request(Method::GET, url)
+            .send()
+            .await?
+            .error_for_status()?
+            .json::<serde_json::Value>()
+            .await?;
+        Ok(resp
+            .get("executions")
+            .and_then(|v| v.as_array())
+            .and_then(|items| items.first())
+            .cloned())
+    }
+
+    /// List MCP servers currently known by AMS MCP Gateway.
+    pub async fn mcp_list_servers(&self) -> Result<serde_json::Value> {
+        let url = format!("{}/gateway/mcp/servers", self.base_url);
+        let resp = self
+            .request(Method::GET, url)
+            .send()
+            .await?
+            .error_for_status()?
+            .json::<serde_json::Value>()
+            .await?;
+        Ok(resp)
+    }
+
+    /// Execute a tool on an MCP server through AMS MCP Gateway.
+    pub async fn mcp_call_tool(
+        &self,
+        server: &str,
+        tool: &str,
+        arguments: &serde_json::Value,
+        timeout_seconds: f64,
+    ) -> Result<serde_json::Value> {
+        let url = format!("{}/gateway/mcp/call", self.base_url);
+        let timeout = timeout_seconds.clamp(1.0, 300.0);
+        let payload = serde_json::json!({
+            "server": server,
+            "tool": tool,
+            "args": arguments,
+            "timeout_seconds": timeout,
+        });
+
+        let resp = self
+            .request(Method::POST, url)
+            .json(&payload)
+            .send()
+            .await?;
+
+        // If gateway endpoints are not present yet on AMS, return a structured
+        // capability error instead of hard-failing the agent turn.
+        if resp.status() == StatusCode::NOT_FOUND {
+            return Ok(serde_json::json!({
+                "success": false,
+                "error": "gateway endpoint not found (/gateway/mcp/call)",
+                "server": server,
+                "tool": tool,
+            }));
+        }
+
+        let resp = resp.error_for_status()?;
+        let data = resp.json::<serde_json::Value>().await?;
+        Ok(data)
     }
 
     /// Health check.

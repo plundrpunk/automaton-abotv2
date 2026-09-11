@@ -12,8 +12,10 @@ RUN cargo build --release -p abot-cli
 FROM debian:bookworm-slim
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates \
+    && apt-get install -y --no-install-recommends ca-certificates git \
     && rm -rf /var/lib/apt/lists/*
+
+RUN git config --system --add safe.directory '*'
 
 WORKDIR /app
 
