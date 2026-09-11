@@ -31,7 +31,39 @@ services:
       AUTOMATON_HAND_DIR: ./hands/automaton-abot-prime-v2
     volumes: *hand-volumes
 
-  # === 13 Team Lead hands (domain knowledge maintainers) ===
+  # === 17 Team Lead hands (domain knowledge maintainers) ===
+  tl-finance:
+    <<: *hand-service
+    environment:
+      <<: *hand-env
+      AUTOMATON_AGENT_NAME: tl-finance
+      AUTOMATON_AGENT_ID: tl-finance
+    volumes: *hand-volumes
+
+  tl-security:
+    <<: *hand-service
+    environment:
+      <<: *hand-env
+      AUTOMATON_AGENT_NAME: tl-security
+      AUTOMATON_AGENT_ID: tl-security
+    volumes: *hand-volumes
+
+  tl-gis:
+    <<: *hand-service
+    environment:
+      <<: *hand-env
+      AUTOMATON_AGENT_NAME: tl-gis
+      AUTOMATON_AGENT_ID: tl-gis
+    volumes: *hand-volumes
+
+  tl-healthcare:
+    <<: *hand-service
+    environment:
+      <<: *hand-env
+      AUTOMATON_AGENT_NAME: tl-healthcare
+      AUTOMATON_AGENT_ID: tl-healthcare
+    volumes: *hand-volumes
+
   tl-engineering:
     <<: *hand-service
     environment:
