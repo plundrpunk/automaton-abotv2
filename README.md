@@ -60,7 +60,7 @@ See [SECURITY.md](SECURITY.md) for the full threat model.
 
 ### Prerequisites
 
-- Rust 1.75+ (`curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`)
+- Rust 1.88+ (the runtime uses Rust 2024 let chains)
 - A running AMS instance (default: `http://localhost:3001`)
 
 ### Build and run
@@ -99,7 +99,9 @@ docker run --rm -it \
 docker compose -f docker-compose.hands.yml up --build -d
 ```
 
-This spins up the current always-on fleet: `automaton-abot-prime-v2` plus the 13 `tl-*` hand containers.
+This spins up the current always-on fleet: `automaton-abot-prime-v2` plus the 17 `tl-*` hand containers (18 services).
+
+Before a rollout, follow the [no-deploy fleet preflight](docs/fleet-rollout-preflight.md).
 
 If the compose fleet needs access to a host AMS checkout, point `AUTOMATON_HOST_AMS_DIR` at that host path before launching. The shared mount defaults to `./ams`, which keeps the checked-in compose file portable across hosts.
 

@@ -1,0 +1,148 @@
+{
+  "status": "PASS",
+  "scope": "source model only",
+  "rollout_ready": false,
+  "source_revision": "006f8e981bb98cdd11256d15d9bcce761d994843",
+  "services": [
+    {
+      "service": "automaton-abot-prime-v2",
+      "agent_id": "Automaton-Abot Prime V2",
+      "hand_directory": "hands/automaton-abot-prime-v2",
+      "archetype": "abot",
+      "healthcheck_defined": false
+    },
+    {
+      "service": "tl-academic",
+      "agent_id": "tl-academic",
+      "hand_directory": "hands/tl-academic",
+      "archetype": "team-lead",
+      "healthcheck_defined": false
+    },
+    {
+      "service": "tl-design",
+      "agent_id": "tl-design",
+      "hand_directory": "hands/tl-design",
+      "archetype": "team-lead",
+      "healthcheck_defined": false
+    },
+    {
+      "service": "tl-engineering",
+      "agent_id": "tl-engineering",
+      "hand_directory": "hands/tl-engineering",
+      "archetype": "team-lead",
+      "healthcheck_defined": false
+    },
+    {
+      "service": "tl-finance",
+      "agent_id": "tl-finance",
+      "hand_directory": "hands/tl-finance",
+      "archetype": "team-lead",
+      "healthcheck_defined": false
+    },
+    {
+      "service": "tl-gamedev",
+      "agent_id": "tl-gamedev",
+      "hand_directory": "hands/tl-gamedev",
+      "archetype": "team-lead",
+      "healthcheck_defined": false
+    },
+    {
+      "service": "tl-gis",
+      "agent_id": "tl-gis",
+      "hand_directory": "hands/tl-gis",
+      "archetype": "team-lead",
+      "healthcheck_defined": false
+    },
+    {
+      "service": "tl-healthcare",
+      "agent_id": "tl-healthcare",
+      "hand_directory": "hands/tl-healthcare",
+      "archetype": "team-lead",
+      "healthcheck_defined": false
+    },
+    {
+      "service": "tl-marketing",
+      "agent_id": "tl-marketing",
+      "hand_directory": "hands/tl-marketing",
+      "archetype": "team-lead",
+      "healthcheck_defined": false
+    },
+    {
+      "service": "tl-paid-media",
+      "agent_id": "tl-paid-media",
+      "hand_directory": "hands/tl-paid-media",
+      "archetype": "team-lead",
+      "healthcheck_defined": false
+    },
+    {
+      "service": "tl-product",
+      "agent_id": "tl-product",
+      "hand_directory": "hands/tl-product",
+      "archetype": "team-lead",
+      "healthcheck_defined": false
+    },
+    {
+      "service": "tl-project-mgmt",
+      "agent_id": "tl-project-mgmt",
+      "hand_directory": "hands/tl-project-mgmt",
+      "archetype": "team-lead",
+      "healthcheck_defined": false
+    },
+    {
+      "service": "tl-sales",
+      "agent_id": "tl-sales",
+      "hand_directory": "hands/tl-sales",
+      "archetype": "team-lead",
+      "healthcheck_defined": false
+    },
+    {
+      "service": "tl-security",
+      "agent_id": "tl-security",
+      "hand_directory": "hands/tl-security",
+      "archetype": "team-lead",
+      "healthcheck_defined": false
+    },
+    {
+      "service": "tl-spatial",
+      "agent_id": "tl-spatial",
+      "hand_directory": "hands/tl-spatial",
+      "archetype": "team-lead",
+      "healthcheck_defined": false
+    },
+    {
+      "service": "tl-specialized",
+      "agent_id": "tl-specialized",
+      "hand_directory": "hands/tl-specialized",
+      "archetype": "team-lead",
+      "healthcheck_defined": false
+    },
+    {
+      "service": "tl-support",
+      "agent_id": "tl-support",
+      "hand_directory": "hands/tl-support",
+      "archetype": "team-lead",
+      "healthcheck_defined": false
+    },
+    {
+      "service": "tl-testing",
+      "agent_id": "tl-testing",
+      "hand_directory": "hands/tl-testing",
+      "archetype": "team-lead",
+      "healthcheck_defined": false
+    }
+  ],
+  "mount_variants_checked": [
+    "default ./ams",
+    "explicit /home/andrew/ams"
+  ],
+  "heartbeat_interval_secs": 10,
+  "local_checkout_free_gib": 127.7,
+  "unverified": [
+    "Linux release image build",
+    "VPS disk and build capacity",
+    "live external network and AMS checkout bind",
+    "AMS credentials, seeded heads and grants",
+    "live Warden/fleet health and tool execution",
+    "rollback image ID and VPS backup bundle"
+  ]
+}

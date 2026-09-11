@@ -1,0 +1,7 @@
+{
+  "Dockerfile": "48aca7a726ab5d69430e00f291018cd303e8193dafb89c958b96d93ffba46497",
+  "Dockerfile.dockerignore": "af1c66258a304aea0433e91cd78ca553edd23b657d64d2de6c35822fa09f966c",
+  "README.md": "78e2b4a6773116e6477f9639269072330072ad9015cf56553d8c4a05e5e9789e",
+  "scripts/preflight_fleet.py": "4e74cb2ba8625b881ce941c1903107c368271d4bbd16d7076da9e82c2768216b",
+  "docs/fleet-rollout-preflight.md": "2107b6e13000cfe65ca3285582f8cba5d6526a84f727870d8b0498d0746eceed"
+}

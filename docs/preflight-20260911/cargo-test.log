@@ -1,0 +1,191 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.42s
+     Running unittests src/lib.rs (target/debug/deps/abot_ams-946b9cce5b0a5b0c)
+
+running 3 tests
+test client::tests::execution_chunk_url_encodes_path_segments ... ok
+test client::tests::steering_message_deserializes_current_warden_shape ... ok
+test client::tests::mcp_call_outlives_client_default_and_sends_clamped_timeout ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.61s
+
+     Running unittests src/lib.rs (target/debug/deps/abot_channels-0598f5927876753d)
+
+running 9 tests
+test telegram::tests::test_telegram_channel_creation ... ok
+test slack::tests::test_slack_channel_creation ... ok
+test discord::tests::test_discord_channel_creation ... ok
+test telegram::tests::test_telegram_connect ... ok
+test telegram::tests::test_send_message_disconnected ... ok
+test slack::tests::test_send_message_disconnected ... ok
+test slack::tests::test_slack_connect ... ok
+test discord::tests::test_send_message_disconnected ... ok
+test discord::tests::test_discord_connect ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/main.rs (target/debug/deps/abot-7d25a910322a92c1)
+
+running 3 tests
+test tests::test_default_log_level ... ok
+test tests::test_custom_log_level ... ok
+test tests::test_args_parsing ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/abot_core-c710b32574c3fbe7)
+
+running 8 tests
+test runtime::tests::error_and_timeout_rows_are_terminal ... ok
+test runtime::tests::summarize_rollup_text_keeps_short_values_unchanged ... ok
+test runtime::tests::truncate_chars_respects_utf8_boundaries ... ok
+test runtime::tests::truncate_chars_supports_description_ellipsis ... ok
+test runtime::tests::summarize_rollup_text_appends_ellipsis_after_500_chars ... ok
+test runtime::tests::terminal_result_is_ok_only_when_completed ... ok
+test runtime::tests::pending_result_without_a_row_has_no_partial_output ... ok
+test runtime::tests::pending_result_carries_partial_output_and_resume_call ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/abot_llm-437cafdaf801da39)
+
+running 9 tests
+test kilo::tests::test_dash_prefixed_prompts_are_after_end_of_options_separator ... ok
+test kilo::tests::test_kilo_mode_flags ... ok
+test kilo::tests::test_kilo_bridge_creation ... ok
+test kilo::tests::test_parse_output ... ok
+test kilo::tests::test_parse_output_multiline ... ok
+test router::tests::test_router_default_routing ... ok
+test router::tests::test_router_multiple_custom_mappings ... ok
+test router::tests::test_task_type_defaults ... ok
+test router::tests::test_router_custom_mapping ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/abot_mcp-dfc8f84778e80f36)
+
+running 9 tests
+test transport::tests::test_transport_creation ... ok
+test transport::tests::test_transport_mode_variants ... ok
+test server::tests::test_server_creation ... ok
+test client::tests::test_client_creation ... ok
+test server::tests::test_get_tools ... ok
+test server::tests::test_register_tool ... ok
+test transport::tests::test_transport_connection ... ok
+test client::tests::test_list_tools ... ok
+test transport::tests::test_send_disconnected ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/abot_sandbox-d23b9b62de5772e1)
+
+running 15 tests
+test engine::tests::test_sandbox_config_default ... ok
+test fuel::tests::test_deadline_tracking ... ok
+test permissions::tests::test_network_permission ... ok
+test fuel::tests::test_fuel_meter_creation ... ok
+test fuel::tests::test_fuel_consumption ... ok
+test fuel::tests::test_fuel_limit_exceeded ... ok
+test permissions::tests::test_path_check_empty ... ok
+test fuel::tests::test_exhaustion_check ... ok
+test permissions::tests::test_add_path ... ok
+test permissions::tests::test_allowed_path_is_normalized_before_comparison ... ok
+test permissions::tests::test_multiple_allowed_paths ... ok
+test engine::tests::test_invalid_wasm_module ... ok
+test permissions::tests::test_path_check_allowed ... ok
+test permissions::tests::test_path_traversal ... ok
+test permissions::tests::test_symlink_escape_is_denied ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/abot_security-c823248bf3388349)
+
+running 20 tests
+test secrets::tests::test_remove_secret ... ok
+test taint::tests::test_taint_and_check ... ok
+test taint::tests::test_get_tainted ... ok
+test taint::tests::test_untaint ... ok
+test secrets::tests::test_store_and_retrieve ... ok
+test taint::tests::test_clone_shares_state ... ok
+test taint::tests::test_multiple_taint_entries ... ok
+test audit::tests::test_audit_trail_creation ... ok
+test taint::tests::test_clear ... ok
+test secrets::tests::test_has_secret ... ok
+test secrets::tests::test_clear_all ... ok
+test audit::tests::test_append_action ... ok
+test secrets::tests::test_multiple_secrets ... ok
+test audit::tests::test_root_hash_changes ... ok
+test audit::tests::test_verify_chain ... ok
+test audit::tests::test_get_entries ... ok
+test manifest::tests::test_signer_creation ... ok
+test manifest::tests::test_sign_and_verify ... ok
+test manifest::tests::test_different_content_different_signature ... ok
+test manifest::tests::test_manifest_serialization ... ok
+
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/manifest_panic_test.rs (target/debug/deps/manifest_panic_test-eee13ffd87b02ba1)
+
+running 1 test
+test test_decode_signature_no_panic ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/abot_telemetry-3378a0c49d3fb3fc)
+
+running 5 tests
+test heartbeat::tests::usage_counters_drain_is_atomic ... ok
+test heartbeat::tests::normalize_status_maps_aliases ... ok
+test metrics::tests::test_metrics_collection ... ok
+test metrics::tests::test_metrics_serialization ... ok
+test heartbeat::tests::test_runtime_state_serialization ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests abot_ams
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests abot_channels
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests abot_core
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests abot_llm
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests abot_mcp
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests abot_sandbox
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests abot_security
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests abot_telemetry
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
