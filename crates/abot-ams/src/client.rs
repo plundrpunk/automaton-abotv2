@@ -523,6 +523,9 @@ impl AmsClient {
     ) -> Result<serde_json::Value> {
         let url = format!("{}/gateway/mcp/call", self.base_url);
         let timeout = timeout_seconds.clamp(1.0, 300.0);
+        // Let the gateway finish and return its response before HTTP times out.
+        let request_timeout = Duration::from_millis(self.request_timeout_ms)
+            .max(Duration::from_secs_f64(timeout) + Duration::from_secs(5));
         let payload = serde_json::json!({
             "server": server,
             "tool": tool,
@@ -532,6 +535,7 @@ impl AmsClient {
 
         let resp = self
             .request(Method::POST, url)
+            .timeout(request_timeout)
             .json(&payload)
             .send()
             .await?;
@@ -645,7 +649,73 @@ impl std::fmt::Debug for AmsConfig {
 
 #[cfg(test)]
 mod tests {
-    use super::{SteeringMessage, execution_chunk_url};
+    use super::{AmsClient, AmsConfig, SteeringMessage, execution_chunk_url};
+    use std::time::Duration;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    #[tokio::test]
+    async fn mcp_call_outlives_client_default_and_sends_clamped_timeout() {
+        for (requested, expected) in [(120.0, 120.0), (0.0, 1.0), (600.0, 300.0)] {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = tokio::spawn(async move {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut request = Vec::new();
+                let payload = loop {
+                    let mut chunk = [0; 1024];
+                    let count = socket.read(&mut chunk).await.unwrap();
+                    assert_ne!(count, 0, "request ended before body arrived");
+                    request.extend_from_slice(&chunk[..count]);
+                    if let Some(end) = request.windows(4).position(|w| w == b"\r\n\r\n") {
+                        let headers = std::str::from_utf8(&request[..end]).unwrap();
+                        assert!(headers.starts_with("POST /gateway/mcp/call HTTP/1.1"));
+                        let length: usize = headers
+                            .lines()
+                            .find_map(|line| {
+                                let (name, value) = line.split_once(':')?;
+                                name.eq_ignore_ascii_case("content-length")
+                                    .then(|| value.trim().parse().unwrap())
+                            })
+                            .unwrap();
+                        if request.len() >= end + 4 + length {
+                            break serde_json::from_slice::<serde_json::Value>(
+                                &request[end + 4..end + 4 + length],
+                            )
+                            .unwrap();
+                        }
+                    }
+                };
+                assert_eq!(payload["timeout_seconds"], expected);
+                assert_eq!(payload["server"], "test-server");
+                assert_eq!(payload["tool"], "test-tool");
+                assert_eq!(payload["args"], serde_json::json!({"input": "test"}));
+                // Longer than the client's 50 ms default, shorter than the tool budget.
+                tokio::time::sleep(Duration::from_millis(200)).await;
+                socket.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 16\r\nConnection: close\r\n\r\n{\"success\":true}").await.unwrap();
+            });
+            let client = AmsClient::new(&AmsConfig {
+                url: format!("http://{address}"),
+                api_key: String::new(),
+                connect_timeout_ms: 1000,
+                request_timeout_ms: 50,
+                heartbeat_interval_secs: 60,
+            })
+            .unwrap();
+            let result = tokio::time::timeout(
+                Duration::from_secs(3),
+                client.mcp_call_tool(
+                    "test-server",
+                    "test-tool",
+                    &serde_json::json!({"input": "test"}),
+                    requested,
+                ),
+            )
+            .await
+            .unwrap();
+            server.await.unwrap();
+            assert_eq!(result.unwrap(), serde_json::json!({"success": true}));
+        }
+    }
 
     #[test]
     fn steering_message_deserializes_current_warden_shape() {
