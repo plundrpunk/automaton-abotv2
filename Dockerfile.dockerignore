@@ -1,0 +1,7 @@
+# Only the source-build Dockerfile uses this filter. Dockerfile.prebuilt
+# still needs target/release/abot in its context.
+.git
+target
+.env
+.env.*
+*.local

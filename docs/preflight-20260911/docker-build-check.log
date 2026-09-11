@@ -1,0 +1,15 @@
+#0 building with "orbstack" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 809B 0.0s done
+#1 DONE 0.1s
+
+#2 [internal] load metadata for docker.io/library/rust:1.88-bookworm
+#2 ...
+
+#3 [internal] load metadata for docker.io/library/debian:bookworm-slim
+#3 DONE 0.7s
+
+#2 [internal] load metadata for docker.io/library/rust:1.88-bookworm
+#2 DONE 0.8s
+Check complete, no warnings found.

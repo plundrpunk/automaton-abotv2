@@ -1,4 +1,4 @@
-FROM rust:1.86-bookworm AS builder
+FROM rust:1.88-bookworm AS builder
 
 WORKDIR /src
 
@@ -7,7 +7,7 @@ COPY crates ./crates
 COPY config ./config
 COPY hands ./hands
 
-RUN cargo build --release -p abot-cli
+RUN cargo build --release --locked -p abot-cli
 
 FROM debian:bookworm-slim
 

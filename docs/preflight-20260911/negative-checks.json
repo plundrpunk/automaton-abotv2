@@ -1,0 +1,37 @@
+[
+  {
+    "case": "missing_restored_lead",
+    "status": "PASS",
+    "rejected": "Expected Prime and exactly 17 named TL services"
+  },
+  {
+    "case": "unexpected_legacy_worker",
+    "status": "PASS",
+    "rejected": "Expected Prime and exactly 17 named TL services"
+  },
+  {
+    "case": "duplicate_identity",
+    "status": "PASS",
+    "rejected": "tl-finance: incorrect agent identity"
+  },
+  {
+    "case": "prime_directory_missing",
+    "status": "PASS",
+    "rejected": "automaton-abot-prime-v2: incorrect hand directory (Prime needs its explicit override)"
+  },
+  {
+    "case": "writable_ams_bind",
+    "status": "PASS",
+    "rejected": "tl-gis: expected one read-only AMS bind, no hand overlays"
+  },
+  {
+    "case": "hand_overlay",
+    "status": "PASS",
+    "rejected": "tl-gis: expected one read-only AMS bind, no hand overlays"
+  },
+  {
+    "case": "merged_dockerfile_1_86",
+    "status": "PASS",
+    "rejected": "Docker builder requires Rust >= 1.88 for existing Rust 2024 let chains"
+  }
+]
