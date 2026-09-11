@@ -39,6 +39,7 @@ services:
       AUTOMATON_AGENT_ID: tl-engineering
     volumes:
       - /home/andrew/ams:/home/andrew/ams:ro
+      - /home/andrew/automaton-abotv2/hands/tl-engineering:/app/hands/tl-engineering:ro
 
   tl-marketing:
     <<: *hand-service
@@ -48,6 +49,7 @@ services:
       AUTOMATON_AGENT_ID: tl-marketing
     volumes:
       - /home/andrew/ams:/home/andrew/ams:ro
+      - /home/andrew/automaton-abotv2/hands/tl-marketing:/app/hands/tl-marketing:ro
 
   tl-specialized:
     <<: *hand-service
@@ -57,6 +59,7 @@ services:
       AUTOMATON_AGENT_ID: tl-specialized
     volumes:
       - /home/andrew/ams:/home/andrew/ams:ro
+      - /home/andrew/automaton-abotv2/hands/tl-specialized:/app/hands/tl-specialized:ro
 
   tl-gamedev:
     <<: *hand-service
@@ -66,6 +69,7 @@ services:
       AUTOMATON_AGENT_ID: tl-gamedev
     volumes:
       - /home/andrew/ams:/home/andrew/ams:ro
+      - /home/andrew/automaton-abotv2/hands/tl-gamedev:/app/hands/tl-gamedev:ro
 
   tl-design:
     <<: *hand-service
@@ -75,6 +79,7 @@ services:
       AUTOMATON_AGENT_ID: tl-design
     volumes:
       - /home/andrew/ams:/home/andrew/ams:ro
+      - /home/andrew/automaton-abotv2/hands/tl-design:/app/hands/tl-design:ro
 
   tl-testing:
     <<: *hand-service
@@ -84,6 +89,7 @@ services:
       AUTOMATON_AGENT_ID: tl-testing
     volumes:
       - /home/andrew/ams:/home/andrew/ams:ro
+      - /home/andrew/automaton-abotv2/hands/tl-testing:/app/hands/tl-testing:ro
 
   tl-sales:
     <<: *hand-service
@@ -93,6 +99,49 @@ services:
       AUTOMATON_AGENT_ID: tl-sales
     volumes:
       - /home/andrew/ams:/home/andrew/ams:ro
+      - /home/andrew/automaton-abotv2/hands/tl-sales:/app/hands/tl-sales:ro
+
+  tl-finance:
+    <<: *hand-service
+    environment:
+      <<: *hand-env
+      AUTOMATON_AGENT_NAME: tl-finance
+      AUTOMATON_AGENT_ID: tl-finance
+    volumes:
+      - /home/andrew/ams:/home/andrew/ams:ro
+      # Hand bundle is baked into abot-v3:local at build time; tl-finance was
+      # added after the last image build, so mount it until the next rebuild.
+      - /home/andrew/automaton-abotv2/hands/tl-finance:/app/hands/tl-finance:ro
+
+  tl-security:
+    <<: *hand-service
+    environment:
+      <<: *hand-env
+      AUTOMATON_AGENT_NAME: tl-security
+      AUTOMATON_AGENT_ID: tl-security
+    volumes:
+      - /home/andrew/ams:/home/andrew/ams:ro
+      - /home/andrew/automaton-abotv2/hands/tl-security:/app/hands/tl-security:ro
+
+  tl-gis:
+    <<: *hand-service
+    environment:
+      <<: *hand-env
+      AUTOMATON_AGENT_NAME: tl-gis
+      AUTOMATON_AGENT_ID: tl-gis
+    volumes:
+      - /home/andrew/ams:/home/andrew/ams:ro
+      - /home/andrew/automaton-abotv2/hands/tl-gis:/app/hands/tl-gis:ro
+
+  tl-healthcare:
+    <<: *hand-service
+    environment:
+      <<: *hand-env
+      AUTOMATON_AGENT_NAME: tl-healthcare
+      AUTOMATON_AGENT_ID: tl-healthcare
+    volumes:
+      - /home/andrew/ams:/home/andrew/ams:ro
+      - /home/andrew/automaton-abotv2/hands/tl-healthcare:/app/hands/tl-healthcare:ro
 
   tl-paid-media:
     <<: *hand-service
@@ -102,6 +151,7 @@ services:
       AUTOMATON_AGENT_ID: tl-paid-media
     volumes:
       - /home/andrew/ams:/home/andrew/ams:ro
+      - /home/andrew/automaton-abotv2/hands/tl-paid-media:/app/hands/tl-paid-media:ro
 
   tl-project-mgmt:
     <<: *hand-service
@@ -111,6 +161,7 @@ services:
       AUTOMATON_AGENT_ID: tl-project-mgmt
     volumes:
       - /home/andrew/ams:/home/andrew/ams:ro
+      - /home/andrew/automaton-abotv2/hands/tl-project-mgmt:/app/hands/tl-project-mgmt:ro
 
   tl-spatial:
     <<: *hand-service
@@ -120,6 +171,7 @@ services:
       AUTOMATON_AGENT_ID: tl-spatial
     volumes:
       - /home/andrew/ams:/home/andrew/ams:ro
+      - /home/andrew/automaton-abotv2/hands/tl-spatial:/app/hands/tl-spatial:ro
 
   tl-support:
     <<: *hand-service
@@ -129,6 +181,7 @@ services:
       AUTOMATON_AGENT_ID: tl-support
     volumes:
       - /home/andrew/ams:/home/andrew/ams:ro
+      - /home/andrew/automaton-abotv2/hands/tl-support:/app/hands/tl-support:ro
 
   tl-product:
     <<: *hand-service
@@ -138,6 +191,7 @@ services:
       AUTOMATON_AGENT_ID: tl-product
     volumes:
       - /home/andrew/ams:/home/andrew/ams:ro
+      - /home/andrew/automaton-abotv2/hands/tl-product:/app/hands/tl-product:ro
 
   tl-academic:
     <<: *hand-service
@@ -147,3 +201,4 @@ services:
       AUTOMATON_AGENT_ID: tl-academic
     volumes:
       - /home/andrew/ams:/home/andrew/ams:ro
+      - /home/andrew/automaton-abotv2/hands/tl-academic:/app/hands/tl-academic:ro

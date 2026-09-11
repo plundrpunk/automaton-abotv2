@@ -1,5 +1,5 @@
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
 use anyhow::Result;
@@ -7,9 +7,7 @@ use serde::{Deserialize, Serialize};
 use tracing::{debug, warn};
 
 use abot_ams::client::AmsClient;
-use abot_ams::fleet::{
-    FleetHeartbeatMetrics, FleetHeartbeatRequest, FleetHeartbeatUsage,
-};
+use abot_ams::fleet::{FleetHeartbeatMetrics, FleetHeartbeatRequest, FleetHeartbeatUsage};
 use abot_ams::warden::{Directive, HeartbeatPayload};
 
 use crate::metrics::SystemMetrics;

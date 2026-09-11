@@ -61,11 +61,7 @@ impl KiloBridge {
     }
 
     /// Execute a prompt with the specified mode
-    pub fn execute(
-        &self,
-        prompt: &str,
-        mode: KiloMode,
-    ) -> Result<LlmResponse, KiloError> {
+    pub fn execute(&self, prompt: &str, mode: KiloMode) -> Result<LlmResponse, KiloError> {
         debug!(
             mode = ?mode,
             prompt_len = prompt.len(),
@@ -87,13 +83,10 @@ impl KiloBridge {
         }
 
         let stdout = String::from_utf8(output.stdout)
-            .map_err(|e| {
-                KiloError::InvalidOutput(format!("Invalid UTF-8: {}", e))
-            })?;
+            .map_err(|e| KiloError::InvalidOutput(format!("Invalid UTF-8: {}", e)))?;
 
         // Parse Kilo output (simplified - actual format depends on Kilo)
-        let (content, tokens_used) =
-            Self::parse_output(&stdout)?;
+        let (content, tokens_used) = Self::parse_output(&stdout)?;
 
         Ok(LlmResponse {
             content,
@@ -121,9 +114,7 @@ impl KiloBridge {
 
         let content = content_lines.join("\n");
         if content.is_empty() {
-            return Err(KiloError::InvalidOutput(
-                "No content in output".to_string(),
-            ));
+            return Err(KiloError::InvalidOutput("No content in output".to_string()));
         }
 
         Ok((content, tokens_used))
@@ -144,8 +135,7 @@ mod tests {
     #[test]
     fn test_parse_output() {
         let output = "TOKENS: 42\nThis is the generated content";
-        let (content, tokens) =
-            KiloBridge::parse_output(output).unwrap();
+        let (content, tokens) = KiloBridge::parse_output(output).unwrap();
 
         assert_eq!(content, "This is the generated content");
         assert_eq!(tokens, 42);
@@ -154,8 +144,7 @@ mod tests {
     #[test]
     fn test_parse_output_multiline() {
         let output = "TOKENS: 100\nLine 1\nLine 2\nLine 3";
-        let (content, tokens) =
-            KiloBridge::parse_output(output).unwrap();
+        let (content, tokens) = KiloBridge::parse_output(output).unwrap();
 
         assert!(content.contains("Line 1"));
         assert!(content.contains("Line 3"));

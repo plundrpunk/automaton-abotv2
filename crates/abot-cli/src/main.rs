@@ -3,7 +3,7 @@ use clap::Parser;
 use std::path::PathBuf;
 use tokio::sync::mpsc;
 use tracing::{error, info};
-use tracing_subscriber::{fmt, prelude::*, EnvFilter};
+use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
 use abot_core::{AbotConfig, Runtime};
 
@@ -17,11 +17,7 @@ use abot_core::{AbotConfig, Runtime};
 )]
 struct Args {
     /// Path to configuration file
-    #[arg(
-        long,
-        short,
-        default_value = "abot.toml",
-    )]
+    #[arg(long, short, default_value = "abot.toml")]
     config: PathBuf,
 
     /// Agent name (overrides config)
@@ -33,11 +29,7 @@ struct Args {
     agent_id: Option<String>,
 
     /// Log level
-    #[arg(
-        long,
-        short = 'l',
-        default_value = "info",
-    )]
+    #[arg(long, short = 'l', default_value = "info")]
     log_level: String,
 }
 
@@ -100,8 +92,7 @@ async fn main() -> Result<()> {
 
 /// Initialize logging with tracing
 fn setup_tracing(log_level: &str) -> Result<()> {
-    let filter = EnvFilter::try_new(log_level)
-        .unwrap_or_else(|_| EnvFilter::new("info"));
+    let filter = EnvFilter::try_new(log_level).unwrap_or_else(|_| EnvFilter::new("info"));
 
     tracing_subscriber::registry()
         .with(
@@ -147,11 +138,7 @@ mod tests {
 
     #[test]
     fn test_custom_log_level() {
-        let args = Args::try_parse_from(vec![
-            "abot",
-            "--log-level",
-            "debug",
-        ]);
+        let args = Args::try_parse_from(vec!["abot", "--log-level", "debug"]);
 
         assert!(args.is_ok());
         let args = args.unwrap();

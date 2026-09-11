@@ -71,7 +71,7 @@ enabled = false
 # Uses Baileys-compatible connection
 
 [mcp]
-# MCP server exposure
+# MCP server exposure (current Rust runtime MCP client/server wiring is scaffolded but not yet active)
 server_enabled = false
 server_port = 5100
 # MCP client connections

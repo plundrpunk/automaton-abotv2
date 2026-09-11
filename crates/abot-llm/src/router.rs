@@ -67,77 +67,44 @@ mod tests {
 
     #[test]
     fn test_task_type_defaults() {
-        assert_eq!(
-            TaskType::CodeGeneration.default_model(),
-            "kilo-code"
-        );
+        assert_eq!(TaskType::CodeGeneration.default_model(), "kilo-code");
         assert_eq!(
             TaskType::ArchitectureDesign.default_model(),
             "kilo-architect"
         );
-        assert_eq!(
-            TaskType::Debugging.default_model(),
-            "kilo-debug"
-        );
+        assert_eq!(TaskType::Debugging.default_model(), "kilo-debug");
         assert_eq!(TaskType::GeneralQuery.default_model(), "kilo-ask");
-        assert_eq!(
-            TaskType::Orchestration.default_model(),
-            "kilo-orchestrator"
-        );
+        assert_eq!(TaskType::Orchestration.default_model(), "kilo-orchestrator");
     }
 
     #[test]
     fn test_router_default_routing() {
         let router = TaskRouter::default();
 
-        assert_eq!(
-            router.route(TaskType::CodeGeneration),
-            "kilo-code"
-        );
-        assert_eq!(
-            router.route(TaskType::Debugging),
-            "kilo-debug"
-        );
+        assert_eq!(router.route(TaskType::CodeGeneration), "kilo-code");
+        assert_eq!(router.route(TaskType::Debugging), "kilo-debug");
     }
 
     #[test]
     fn test_router_custom_mapping() {
         let mut router = TaskRouter::default();
-        router.set_model(
-            TaskType::CodeGeneration,
-            "custom-code-model".to_string(),
-        );
+        router.set_model(TaskType::CodeGeneration, "custom-code-model".to_string());
 
-        assert_eq!(
-            router.route(TaskType::CodeGeneration),
-            "custom-code-model"
-        );
+        assert_eq!(router.route(TaskType::CodeGeneration), "custom-code-model");
 
         // Other routes should still use defaults
-        assert_eq!(
-            router.route(TaskType::Debugging),
-            "kilo-debug"
-        );
+        assert_eq!(router.route(TaskType::Debugging), "kilo-debug");
     }
 
     #[test]
     fn test_router_multiple_custom_mappings() {
         let mut map = HashMap::new();
-        map.insert(
-            TaskType::CodeGeneration,
-            "gpt4-code".to_string(),
-        );
-        map.insert(
-            TaskType::ArchitectureDesign,
-            "gpt4-architect".to_string(),
-        );
+        map.insert(TaskType::CodeGeneration, "gpt4-code".to_string());
+        map.insert(TaskType::ArchitectureDesign, "gpt4-architect".to_string());
 
         let router = TaskRouter::new(map);
 
         assert_eq!(router.route(TaskType::CodeGeneration), "gpt4-code");
-        assert_eq!(
-            router.route(TaskType::ArchitectureDesign),
-            "gpt4-architect"
-        );
+        assert_eq!(router.route(TaskType::ArchitectureDesign), "gpt4-architect");
     }
 }

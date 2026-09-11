@@ -23,9 +23,7 @@ impl MerkleAuditTrail {
     pub fn new() -> Self {
         Self {
             entries: Arc::new(Mutex::new(Vec::new())),
-            root_hash: Arc::new(Mutex::new(
-                Self::empty_hash().to_string(),
-            )),
+            root_hash: Arc::new(Mutex::new(Self::empty_hash().to_string())),
         }
     }
 

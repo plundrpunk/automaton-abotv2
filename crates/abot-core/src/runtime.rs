@@ -1,18 +1,20 @@
 use anyhow::Result;
 use chrono::Utc;
 use tokio::sync::mpsc;
-use tracing::{info, warn, error};
+use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use crate::config::AbotConfig;
 use crate::hand::{LoadedHand, load_hand};
 use abot_ams::client::{AmsClient, AmsConfig, SteeringMessage};
-use abot_ams::fleet::{ExecutionChunkData, ExecutionChunkRequest, FleetRegisterAgentRequest, RegisterExecutionRequest};
+use abot_ams::fleet::{
+    ExecutionChunkData, ExecutionChunkRequest, FleetRegisterAgentRequest, RegisterExecutionRequest,
+};
 use abot_ams::llm::{CompletionRequest, ToolCompletionRequest};
 use abot_ams::warden::{AmsGrants, BirthRequest, Directive};
-use abot_telemetry::heartbeat::{HeartbeatReporter, RuntimeState as TelemetryState};
 use abot_llm::KiloBridge;
 use abot_llm::kilo::KiloMode;
+use abot_telemetry::heartbeat::{HeartbeatReporter, RuntimeState as TelemetryState};
 
 /// The main runtime event loop for the Abot.
 ///
@@ -64,6 +66,133 @@ impl std::fmt::Display for AgentStatus {
     }
 }
 
+
+fn metadata_string(meta: Option<&serde_json::Value>, keys: &[&str]) -> Option<String> {
+    let meta = meta?;
+    for key in keys {
+        if let Some(value) = meta.get(*key).and_then(|v| v.as_str()) {
+            if !value.is_empty() {
+                return Some(value.to_string());
+            }
+        }
+    }
+    None
+}
+
+fn execution_id_from_value(value: &serde_json::Value) -> Option<String> {
+    value
+        .get("execution_id")
+        .or_else(|| value.get("executionId"))
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+}
+
+fn terminal_output(value: &serde_json::Value) -> serde_json::Value {
+    value
+        .get("output")
+        .or_else(|| value.get("output_buffer"))
+        .cloned()
+        .unwrap_or(serde_json::Value::Null)
+}
+
+fn normalize_task_status(status: &str) -> Option<&'static str> {
+    match status.to_ascii_lowercase().replace(['-', ' '], "_").as_str() {
+        "pending" | "todo" | "to_do" | "backlog" | "open" | "queued" => Some("pending"),
+        "active" | "in_progress" | "running" | "working" | "started" => Some("active"),
+        "done" | "complete" | "completed" | "succeeded" | "closed" => Some("done"),
+        "failed" | "error" | "errored" | "killed" | "cancelled" | "canceled" => Some("failed"),
+        _ => None,
+    }
+}
+
+fn task_title(value: &serde_json::Value) -> Option<String> {
+    value
+        .get("title")
+        .or_else(|| value.get("name"))
+        .or_else(|| value.get("task"))
+        .or_else(|| value.get("description"))
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| {
+            if s.chars().count() > 120 {
+                format!("{}...", s.chars().take(120).collect::<String>())
+            } else {
+                s.to_string()
+            }
+        })
+}
+
+fn collect_task_board_items(
+    value: &serde_json::Value,
+    inherited_status: Option<&'static str>,
+    out: &mut Vec<(String, String)>,
+) {
+    match value {
+        serde_json::Value::Array(items) => {
+            for item in items {
+                collect_task_board_items(item, inherited_status, out);
+            }
+        }
+        serde_json::Value::Object(map) => {
+            let own_status = map
+                .get("status")
+                .or_else(|| map.get("state"))
+                .and_then(|v| v.as_str())
+                .and_then(normalize_task_status)
+                .or(inherited_status);
+
+            if let (Some(status), Some(title)) = (own_status, task_title(value)) {
+                out.push((status.to_string(), title));
+            }
+
+            for (key, child) in map {
+                let key_status = normalize_task_status(key).or(own_status);
+                collect_task_board_items(child, key_status, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn task_board_summary(board: &serde_json::Value) -> serde_json::Value {
+    let mut items = Vec::new();
+    collect_task_board_items(board, None, &mut items);
+
+    let mut pending = 0usize;
+    let mut active = 0usize;
+    let mut done = 0usize;
+    let mut failed = 0usize;
+    let mut top_tasks = Vec::new();
+
+    for (status, title) in items {
+        match status.as_str() {
+            "pending" => pending += 1,
+            "active" => active += 1,
+            "done" => done += 1,
+            "failed" => failed += 1,
+            _ => {}
+        }
+        if top_tasks.len() < 10 {
+            top_tasks.push(serde_json::json!({
+                "status": status,
+                "title": title,
+            }));
+        }
+    }
+
+    serde_json::json!({
+        "counts": {
+            "pending": pending,
+            "active": active,
+            "done": done,
+            "failed": failed,
+        },
+        "top_tasks": top_tasks,
+    })
+}
+
 impl Runtime {
     pub fn new(config: AbotConfig, shutdown_rx: mpsc::Receiver<()>) -> Result<Self> {
         // Convert core's config::AmsConfig → abot_ams::AmsConfig
@@ -75,10 +204,7 @@ impl Runtime {
             heartbeat_interval_secs: config.ams.heartbeat_interval_secs,
         };
         let ams = AmsClient::new(&ams_config)?;
-        let heartbeat = HeartbeatReporter::new(
-            ams.clone(),
-            config.ams.heartbeat_interval_secs,
-        );
+        let heartbeat = HeartbeatReporter::new(ams.clone(), config.ams.heartbeat_interval_secs);
 
         // Load hand manifest if a matching hands/<agent_name>/ directory exists
         let hand = load_hand(&config.hands.directory, &config.agent.name);
@@ -109,7 +235,8 @@ impl Runtime {
         });
         if let Some(hand) = &self.hand {
             let claims = hand.to_ams_claims();
-            if let (Some(base), Some(extra)) = (birth_metadata.as_object_mut(), claims.as_object()) {
+            if let (Some(base), Some(extra)) = (birth_metadata.as_object_mut(), claims.as_object())
+            {
                 for (k, v) in extra {
                     base.insert(k.clone(), v.clone());
                 }
@@ -119,11 +246,14 @@ impl Runtime {
             }
         }
 
-        let birth_response = self.ams.birth(BirthRequest {
-            agent_id: self.config.agent.id.clone(),
-            agent_name: self.config.agent.name.clone(),
-            metadata: birth_metadata,
-        }).await?;
+        let birth_response = self
+            .ams
+            .birth(BirthRequest {
+                agent_id: self.config.agent.id.clone(),
+                agent_name: self.config.agent.name.clone(),
+                metadata: birth_metadata,
+            })
+            .await?;
 
         // Store and log AMS-granted operating limits
         if let Some(grants) = &birth_response.grants {
@@ -203,9 +333,9 @@ impl Runtime {
         }
 
         // === MAIN EVENT LOOP ===
-        let mut heartbeat_interval = tokio::time::interval(
-            std::time::Duration::from_secs(self.config.ams.heartbeat_interval_secs)
-        );
+        let mut heartbeat_interval = tokio::time::interval(std::time::Duration::from_secs(
+            self.config.ams.heartbeat_interval_secs,
+        ));
         let mut message_poll_interval = tokio::time::interval(std::time::Duration::from_secs(1));
 
         loop {
@@ -296,17 +426,32 @@ impl Runtime {
         }
 
         let fleet_execution_id = format!("fleet-{}", Uuid::new_v4().simple());
+        let incoming_meta = message.metadata.as_ref();
         let requested_model = self.requested_model();
-        let execution = self.ams.register_execution(&RegisterExecutionRequest {
-            agent_id: state.agent_id.clone(),
-            tenant_id: "default".to_string(),
-            execution_id: fleet_execution_id.clone(),
-            agent_name: self.config.agent.name.clone(),
-            task: prompt.clone(),
-            model: requested_model.clone(),
-            instance_id: None,
-            user_id: None,
-        }).await?;
+        let execution = self
+            .ams
+            .register_execution(&RegisterExecutionRequest {
+                agent_id: state.agent_id.clone(),
+                tenant_id: "default".to_string(),
+                execution_id: fleet_execution_id.clone(),
+                agent_name: self.config.agent.name.clone(),
+                task: prompt.clone(),
+                model: requested_model.clone(),
+                instance_id: None,
+                user_id: None,
+                parent_orchestration_id: metadata_string(incoming_meta, &["parent_orchestration_id"]),
+                parent_task_id: metadata_string(incoming_meta, &["parent_task_id"]),
+                parent_execution_id: metadata_string(incoming_meta, &["parent_execution_id", "parent_exec_id"]),
+                trace_id: metadata_string(incoming_meta, &["trace_id"]),
+                span_id: metadata_string(incoming_meta, &["span_id"]),
+                parent_span_id: metadata_string(incoming_meta, &["parent_span_id"]),
+                correlation_id: metadata_string(incoming_meta, &["correlation_id", "dispatch_id"]),
+                dispatch_id: metadata_string(incoming_meta, &["dispatch_id", "correlation_id"]),
+                child_agent_id: metadata_string(incoming_meta, &["child_agent_id"]),
+                specialist_role: metadata_string(incoming_meta, &["specialist_role", "child_agent_id"]),
+                artifact_ref: metadata_string(incoming_meta, &["artifact_ref"]),
+            })
+            .await?;
 
         state.status = AgentStatus::Working;
         state.current_execution = Some(execution.execution_id.clone());
@@ -319,35 +464,47 @@ impl Runtime {
             "Processing steering message"
         );
 
-        self.ams.emit_execution_chunk(
-            &fleet_execution_id,
-            &ExecutionChunkRequest {
-                agent_id: state.agent_id.clone(),
-                tenant_id: "default".to_string(),
-                execution_id: fleet_execution_id.clone(),
-                chunk_type: "start".to_string(),
-                timestamp: Utc::now().to_rfc3339(),
-                data: ExecutionChunkData {
-                    model: Some(requested_model.clone()),
-                    ..Default::default()
+        self.ams
+            .emit_execution_chunk(
+                &fleet_execution_id,
+                &ExecutionChunkRequest {
+                    agent_id: state.agent_id.clone(),
+                    tenant_id: "default".to_string(),
+                    execution_id: fleet_execution_id.clone(),
+                    chunk_type: "start".to_string(),
+                    timestamp: Utc::now().to_rfc3339(),
+                    data: ExecutionChunkData {
+                        model: Some(requested_model.clone()),
+                        ..Default::default()
+                    },
                 },
-            },
-        ).await?;
+            )
+            .await?;
 
         let started_at = std::time::Instant::now();
-        let system_prompt = self.hand.as_ref().and_then(|hand| hand.system_prompt.clone());
+        let system_prompt = self
+            .hand
+            .as_ref()
+            .and_then(|hand| hand.system_prompt.clone());
 
         // Tools are enabled either by archetype (team-leads and orchestrators
         // always get the dispatch/wait/synthesize loop) or by AMS birth grants
         // (enable_tools=true opts any agent into the tool loop).
-        let archetype = self.hand.as_ref()
+        let archetype = self
+            .hand
+            .as_ref()
             .map(|h| h.manifest.hand.archetype.as_str())
             .unwrap_or("");
         let archetype_enables_tools = matches!(archetype, "team-lead" | "orchestrator");
-        let grants_enable_tools = self.grants.as_ref()
+        let grants_enable_tools = self
+            .grants
+            .as_ref()
             .map(|g| g.enable_tools)
             .unwrap_or(false);
-        let has_tools = archetype_enables_tools || grants_enable_tools;
+        let env_enable_tools = std::env::var("AUTOMATON_ENABLE_TOOLS")
+            .map(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+            .unwrap_or(false);
+        let has_tools = env_enable_tools || archetype_enables_tools || grants_enable_tools;
 
         // If this activation was spawned by a parent orchestrator's
         // dispatch_to_tl, capture the rollup breadcrumbs so the tool loop
@@ -355,7 +512,6 @@ impl Runtime {
         // arriving at an orchestrator, we're the terminus (rollup_target
         // stays None) and the prompt is augmented instead so the LLM
         // knows to synthesize the TL's result for the user.
-        let incoming_meta = message.metadata.as_ref();
         // chat_session_id rides on any msg_type originating from a
         // dashboard-initiated turn. We pluck it once here and thread it
         // through run_tool_loop; on completion the runtime posts its
@@ -410,19 +566,31 @@ impl Runtime {
         let chat_session_id = chat_session_id_owned.as_deref();
         let final_event = if has_tools {
             self.run_tool_loop(
-                state, &fleet_execution_id, &prompt, &requested_model,
-                system_prompt.as_deref(), started_at, rollup_target,
+                state,
+                &fleet_execution_id,
+                &prompt,
+                &requested_model,
+                system_prompt.as_deref(),
+                started_at,
+                rollup_target,
                 chat_session_id,
-            ).await
+            )
+            .await
         } else {
             // Non-tooled agents: single-shot response (original behavior)
             self.run_single_shot(
-                state, &fleet_execution_id, &prompt, &requested_model,
+                state,
+                &fleet_execution_id,
+                &prompt,
+                &requested_model,
                 started_at,
-            ).await
+            )
+            .await
         };
 
-        self.ams.emit_execution_chunk(&fleet_execution_id, &final_event?).await?;
+        self.ams
+            .emit_execution_chunk(&fleet_execution_id, &final_event?)
+            .await?;
         state.status = AgentStatus::Idle;
         state.current_execution = None;
         Ok(())
@@ -440,26 +608,29 @@ impl Runtime {
         let result = self.generate_response(prompt).await;
         match result {
             Ok(result) => {
-                state.token_count = state.token_count
+                state.token_count = state
+                    .token_count
                     .saturating_add(result.input_tokens + result.output_tokens);
                 state.context_pct = ((state.token_count as f64 / state.max_tokens as f64) * 100.0)
                     .clamp(0.0, 100.0);
 
-                self.ams.emit_execution_chunk(
-                    fleet_execution_id,
-                    &ExecutionChunkRequest {
-                        agent_id: state.agent_id.clone(),
-                        tenant_id: "default".to_string(),
-                        execution_id: fleet_execution_id.to_string(),
-                        chunk_type: "output".to_string(),
-                        timestamp: Utc::now().to_rfc3339(),
-                        data: ExecutionChunkData {
-                            content: Some(result.content.clone()),
-                            model: Some(result.model.clone()),
-                            ..Default::default()
+                self.ams
+                    .emit_execution_chunk(
+                        fleet_execution_id,
+                        &ExecutionChunkRequest {
+                            agent_id: state.agent_id.clone(),
+                            tenant_id: "default".to_string(),
+                            execution_id: fleet_execution_id.to_string(),
+                            chunk_type: "output".to_string(),
+                            timestamp: Utc::now().to_rfc3339(),
+                            data: ExecutionChunkData {
+                                content: Some(result.content.clone()),
+                                model: Some(result.model.clone()),
+                                ..Default::default()
+                            },
                         },
-                    },
-                ).await?;
+                    )
+                    .await?;
 
                 info!(
                     agent_id = %state.agent_id,
@@ -534,7 +705,9 @@ impl Runtime {
         rollup_target: Option<(&str, &str)>,
         chat_session_id: Option<&str>,
     ) -> Result<ExecutionChunkRequest> {
-        let archetype = self.hand.as_ref()
+        let archetype = self
+            .hand
+            .as_ref()
             .map(|h| h.manifest.hand.archetype.as_str())
             .unwrap_or("");
         let tools = match archetype {
@@ -564,7 +737,8 @@ impl Runtime {
                 );
                 Self::tl_tool_definitions(&specialists)
             }
-            _ => Self::orchestrator_tool_definitions(),
+            "orchestrator" => Self::orchestrator_tool_definitions(),
+            _ => Self::mcp_bridge_tool_definitions(),
         };
 
         let mut messages: Vec<serde_json::Value> = Vec::new();
@@ -586,13 +760,16 @@ impl Runtime {
                 "Tool loop iteration"
             );
 
-            let response = self.ams.complete_with_tools(&ToolCompletionRequest {
-                messages: messages.clone(),
-                tools: tools.clone(),
-                max_tokens: 4000,
-                model: Some(requested_model.to_string()),
-                temperature: Some(0.3),
-            }).await;
+            let response = self
+                .ams
+                .complete_with_tools(&ToolCompletionRequest {
+                    messages: messages.clone(),
+                    tools: tools.clone(),
+                    max_tokens: 4000,
+                    model: Some(requested_model.to_string()),
+                    temperature: Some(0.3),
+                })
+                .await;
 
             let response = match response {
                 Ok(r) => r,
@@ -641,8 +818,12 @@ impl Runtime {
                 let tc_id = tool_call.get("id").and_then(|v| v.as_str()).unwrap_or("");
                 let func = tool_call.get("function").cloned().unwrap_or_default();
                 let func_name = func.get("name").and_then(|v| v.as_str()).unwrap_or("");
-                let func_args_str = func.get("arguments").and_then(|v| v.as_str()).unwrap_or("{}");
-                let func_args: serde_json::Value = serde_json::from_str(func_args_str).unwrap_or_default();
+                let func_args_str = func
+                    .get("arguments")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("{}");
+                let func_args: serde_json::Value =
+                    serde_json::from_str(func_args_str).unwrap_or_default();
 
                 info!(
                     agent_id = %state.agent_id,
@@ -652,23 +833,38 @@ impl Runtime {
                 );
 
                 // Emit tool use telemetry
-                let _ = self.ams.emit_execution_chunk(
-                    fleet_execution_id,
-                    &ExecutionChunkRequest {
-                        agent_id: state.agent_id.clone(),
-                        tenant_id: "default".to_string(),
-                        execution_id: fleet_execution_id.to_string(),
-                        chunk_type: "tool_use".to_string(),
-                        timestamp: Utc::now().to_rfc3339(),
-                        data: ExecutionChunkData {
-                            tool_name: Some(func_name.to_string()),
-                            tool_input: Some(func_args.clone()),
-                            ..Default::default()
+                let _ = self
+                    .ams
+                    .emit_execution_chunk(
+                        fleet_execution_id,
+                        &ExecutionChunkRequest {
+                            agent_id: state.agent_id.clone(),
+                            tenant_id: "default".to_string(),
+                            execution_id: fleet_execution_id.to_string(),
+                            chunk_type: "tool_use".to_string(),
+                            timestamp: Utc::now().to_rfc3339(),
+                            data: ExecutionChunkData {
+                                tool_name: Some(func_name.to_string()),
+                                tool_input: Some(func_args.clone()),
+                                ..Default::default()
+                            },
                         },
-                    },
-                ).await;
+                    )
+                    .await;
 
-                let tool_result = self.execute_tool(func_name, &func_args, &state.agent_id, Some(fleet_execution_id), chat_session_id).await;
+                let caller_registry_execution_id = state
+                    .current_execution
+                    .as_deref()
+                    .unwrap_or(fleet_execution_id);
+                let tool_result = self
+                    .execute_tool(
+                        func_name,
+                        &func_args,
+                        &state.agent_id,
+                        Some(caller_registry_execution_id),
+                        chat_session_id,
+                    )
+                    .await;
 
                 info!(
                     agent_id = %state.agent_id,
@@ -678,21 +874,24 @@ impl Runtime {
                 );
 
                 // Emit tool result telemetry
-                let _ = self.ams.emit_execution_chunk(
-                    fleet_execution_id,
-                    &ExecutionChunkRequest {
-                        agent_id: state.agent_id.clone(),
-                        tenant_id: "default".to_string(),
-                        execution_id: fleet_execution_id.to_string(),
-                        chunk_type: "tool_result".to_string(),
-                        timestamp: Utc::now().to_rfc3339(),
-                        data: ExecutionChunkData {
-                            tool_name: Some(func_name.to_string()),
-                            tool_output: Some(tool_result.clone()),
-                            ..Default::default()
+                let _ = self
+                    .ams
+                    .emit_execution_chunk(
+                        fleet_execution_id,
+                        &ExecutionChunkRequest {
+                            agent_id: state.agent_id.clone(),
+                            tenant_id: "default".to_string(),
+                            execution_id: fleet_execution_id.to_string(),
+                            chunk_type: "tool_result".to_string(),
+                            timestamp: Utc::now().to_rfc3339(),
+                            data: ExecutionChunkData {
+                                tool_name: Some(func_name.to_string()),
+                                tool_output: Some(tool_result.clone()),
+                                ..Default::default()
+                            },
                         },
-                    },
-                ).await;
+                    )
+                    .await;
 
                 // Add tool result message
                 messages.push(serde_json::json!({
@@ -703,27 +902,32 @@ impl Runtime {
             }
         }
 
-        state.token_count = state.token_count.saturating_add(total_in_tokens + total_out_tokens);
-        state.context_pct = ((state.token_count as f64 / state.max_tokens as f64) * 100.0)
-            .clamp(0.0, 100.0);
+        state.token_count = state
+            .token_count
+            .saturating_add(total_in_tokens + total_out_tokens);
+        state.context_pct =
+            ((state.token_count as f64 / state.max_tokens as f64) * 100.0).clamp(0.0, 100.0);
 
         // Emit final output
         if !final_text.is_empty() {
-            let _ = self.ams.emit_execution_chunk(
-                fleet_execution_id,
-                &ExecutionChunkRequest {
-                    agent_id: state.agent_id.clone(),
-                    tenant_id: "default".to_string(),
-                    execution_id: fleet_execution_id.to_string(),
-                    chunk_type: "output".to_string(),
-                    timestamp: Utc::now().to_rfc3339(),
-                    data: ExecutionChunkData {
-                        content: Some(final_text.clone()),
-                        model: Some(requested_model.to_string()),
-                        ..Default::default()
+            let _ = self
+                .ams
+                .emit_execution_chunk(
+                    fleet_execution_id,
+                    &ExecutionChunkRequest {
+                        agent_id: state.agent_id.clone(),
+                        tenant_id: "default".to_string(),
+                        execution_id: fleet_execution_id.to_string(),
+                        chunk_type: "output".to_string(),
+                        timestamp: Utc::now().to_rfc3339(),
+                        data: ExecutionChunkData {
+                            content: Some(final_text.clone()),
+                            model: Some(requested_model.to_string()),
+                            ..Default::default()
+                        },
                     },
-                },
-            ).await;
+                )
+                .await;
 
             // Persist the synthesized orchestration result as an episodic
             // memory on the caller. Makes the dashboard "recent memories"
@@ -775,9 +979,15 @@ impl Runtime {
                 } else {
                     final_text.clone()
                 };
+                let child_registry_execution_id = state
+                    .current_execution
+                    .as_deref()
+                    .unwrap_or(fleet_execution_id);
                 let mut rollup_meta = serde_json::json!({
                     "parent_exec_id": parent_exec,
-                    "child_exec_id": fleet_execution_id,
+                    "parent_execution_id": parent_exec,
+                    "child_exec_id": child_registry_execution_id,
+                    "child_fleet_execution_id": fleet_execution_id,
                     "child_agent_id": state.agent_id,
                     "memory_id": memory_id.clone().unwrap_or_default(),
                 });
@@ -787,13 +997,17 @@ impl Runtime {
                 if let Some(cs) = chat_session_id {
                     rollup_meta["chat_session_id"] = serde_json::Value::String(cs.to_string());
                 }
-                if let Err(e) = self.ams.send_steering_message(
-                    parent_agent,
-                    &summary,
-                    "rollup",
-                    &state.agent_id,
-                    Some(&rollup_meta),
-                ).await {
+                if let Err(e) = self
+                    .ams
+                    .send_steering_message(
+                        parent_agent,
+                        &summary,
+                        "rollup",
+                        &state.agent_id,
+                        Some(&rollup_meta),
+                    )
+                    .await
+                {
                     warn!(
                         agent_id = %state.agent_id,
                         parent_agent = %parent_agent,
@@ -821,12 +1035,11 @@ impl Runtime {
         // doesn't break the tool-loop result.
         if let Some(cs) = chat_session_id {
             if !final_text.trim().is_empty() {
-                if let Err(e) = self.ams.post_chat_message(
-                    cs,
-                    &final_text,
-                    &state.agent_id,
-                    Some(requested_model),
-                ).await {
+                if let Err(e) = self
+                    .ams
+                    .post_chat_message(cs, &final_text, &state.agent_id, Some(requested_model))
+                    .await
+                {
                     warn!(
                         agent_id = %state.agent_id,
                         execution_id = %fleet_execution_id,
@@ -882,43 +1095,64 @@ impl Runtime {
     ) -> String {
         match name {
             "dispatch_to_worker" => {
-                let worker = args.get("worker_name").and_then(|v| v.as_str()).unwrap_or("");
+                let worker = args
+                    .get("worker_name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
                 let task = args.get("task").and_then(|v| v.as_str()).unwrap_or("");
-                let timeout_secs = args.get("timeout_secs").and_then(|v| v.as_u64()).unwrap_or(180);
+                let timeout_secs = args
+                    .get("timeout_secs")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(900);
                 if worker.is_empty() || task.is_empty() {
-                    return serde_json::json!({"error": "worker_name and task are required"}).to_string();
+                    return serde_json::json!({"error": "worker_name and task are required"})
+                        .to_string();
                 }
 
-                // Step 1: dispatch. AMS now returns execution_id when
-                // spawn_triggered=true (paired with agent-memory-backend
-                // commit fdcf223).
-                let dispatch = match self.ams.send_steering_message(worker, task, "task", caller_agent_id, None).await {
-                    Ok(v) => v,
-                    Err(e) => return serde_json::json!({
-                        "ok": false, "error": format!("dispatch: {}", e),
-                    }).to_string(),
-                };
+                // Step 1: dispatch with durable lineage. Already-alive
+                // workers only get a queued Warden message immediately; the
+                // child execution id appears later when the worker polls and
+                // registers the task. correlation_id/dispatch_id lets us find
+                // that later Observatory row instead of returning enqueued_only.
+                let dispatch_id = format!("dispatch-{}", Uuid::new_v4().simple());
+                let mut dispatch_meta = serde_json::json!({
+                    "parent_agent_id": caller_agent_id,
+                    "correlation_id": dispatch_id,
+                    "dispatch_id": dispatch_id,
+                    "child_agent_id": worker,
+                    "specialist_role": worker,
+                });
+                if let Some(exec) = caller_exec_id {
+                    dispatch_meta["parent_exec_id"] = serde_json::Value::String(exec.to_string());
+                    dispatch_meta["parent_execution_id"] = serde_json::Value::String(exec.to_string());
+                }
+                if let Some(cs) = chat_session_id {
+                    dispatch_meta["chat_session_id"] = serde_json::Value::String(cs.to_string());
+                }
 
-                let exec_id = match dispatch.get("execution_id").and_then(|v| v.as_str()) {
-                    Some(s) if !s.is_empty() => s.to_string(),
-                    _ => {
-                        // Worker was already alive; message just queued.
-                        // Nothing fresh to wait on.
+                let dispatch = match self
+                    .ams
+                    .send_steering_message(worker, task, "task", caller_agent_id, Some(&dispatch_meta))
+                    .await
+                {
+                    Ok(v) => v,
+                    Err(e) => {
                         return serde_json::json!({
-                            "ok": true,
-                            "dispatched_to": worker,
-                            "status": "enqueued_only",
-                            "note": "worker was alive; message queued but no new execution",
-                            "response": dispatch,
-                        }).to_string();
+                            "ok": false, "error": format!("dispatch: {}", e),
+                        })
+                        .to_string();
                     }
                 };
 
-                // Step 2: poll the observatory until terminal, then return
-                // the output so the orchestrator can synthesize.
-                let deadline = std::time::Instant::now()
-                    + std::time::Duration::from_secs(timeout_secs);
+                let mut exec_id = execution_id_from_value(&dispatch);
+
+                // Step 2: poll the observatory until the child row appears
+                // and reaches terminal state, then return its output so the
+                // TL can synthesize a real fan-in rollup.
+                let deadline =
+                    std::time::Instant::now() + std::time::Duration::from_secs(timeout_secs);
                 let poll_interval = std::time::Duration::from_secs(2);
+                let parent_exec_owned = caller_exec_id.map(str::to_string);
 
                 loop {
                     if std::time::Instant::now() > deadline {
@@ -928,30 +1162,60 @@ impl Runtime {
                             "execution_id": exec_id,
                             "status": "timeout",
                             "timeout_secs": timeout_secs,
-                        }).to_string();
+                            "correlation_id": dispatch_id,
+                            "response": dispatch,
+                        })
+                        .to_string();
                     }
-                    match self.ams.get_execution(&exec_id).await {
-                        Ok(exec) => {
-                            let status = exec.get("status")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("unknown");
-                            if matches!(status, "completed" | "failed" | "killed") {
-                                let output = exec.get("output").cloned()
-                                    .unwrap_or(serde_json::Value::Null);
-                                return serde_json::json!({
-                                    "ok": status == "completed",
-                                    "dispatched_to": worker,
-                                    "execution_id": exec_id,
-                                    "status": status,
-                                    "output": output,
-                                    "duration_ms": exec.get("duration_ms"),
-                                }).to_string();
+
+                    if exec_id.is_none() {
+                        match self
+                            .ams
+                            .find_execution_by_lineage(
+                                Some(&dispatch_id),
+                                parent_exec_owned.as_deref(),
+                                Some(worker),
+                            )
+                            .await
+                        {
+                            Ok(Some(found)) => {
+                                exec_id = execution_id_from_value(&found);
+                                if exec_id.is_none() {
+                                    tracing::debug!(correlation_id = %dispatch_id, "lineage lookup returned row without execution id");
+                                }
+                            }
+                            Ok(None) => {}
+                            Err(e) => {
+                                tracing::debug!(correlation_id = %dispatch_id, err = %e, "lineage lookup transient");
                             }
                         }
-                        Err(e) => {
-                            // 404s are expected for the first few polls
-                            // while the background spawn writes the row.
-                            tracing::debug!(exec_id = %exec_id, err = %e, "get_execution transient");
+                    }
+
+                    if let Some(current_exec_id) = exec_id.as_deref() {
+                        match self.ams.get_execution(current_exec_id).await {
+                            Ok(exec) => {
+                                let status = exec
+                                    .get("status")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("unknown");
+                                if matches!(status, "completed" | "failed" | "killed") {
+                                    let output = terminal_output(&exec);
+                                    return serde_json::json!({
+                                        "ok": status == "completed",
+                                        "dispatched_to": worker,
+                                        "execution_id": current_exec_id,
+                                        "status": status,
+                                        "output": output,
+                                        "duration_ms": exec.get("duration_ms"),
+                                        "correlation_id": dispatch_id,
+                                        "response": dispatch,
+                                    })
+                                    .to_string();
+                                }
+                            }
+                            Err(e) => {
+                                tracing::debug!(exec_id = %current_exec_id, err = %e, "get_execution transient");
+                            }
                         }
                     }
                     tokio::time::sleep(poll_interval).await;
@@ -960,9 +1224,13 @@ impl Runtime {
             "dispatch_to_tl" => {
                 let tl_name = args.get("tl_name").and_then(|v| v.as_str()).unwrap_or("");
                 let task = args.get("task").and_then(|v| v.as_str()).unwrap_or("");
-                let priority = args.get("priority").and_then(|v| v.as_str()).unwrap_or("normal");
+                let priority = args
+                    .get("priority")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("normal");
                 if tl_name.is_empty() || task.is_empty() {
-                    return serde_json::json!({"error": "tl_name and task are required"}).to_string();
+                    return serde_json::json!({"error": "tl_name and task are required"})
+                        .to_string();
                 }
                 // Hand the TL the rollup breadcrumbs: our agent_id + exec_id.
                 // When the TL's orchestration loop ends, it POSTs a `rollup`
@@ -981,17 +1249,29 @@ impl Runtime {
                     }
                     m
                 });
-                match self.ams.send_steering_message(tl_name, task, "task", caller_agent_id, rollup_meta.as_ref()).await {
+                match self
+                    .ams
+                    .send_steering_message(
+                        tl_name,
+                        task,
+                        "task",
+                        caller_agent_id,
+                        rollup_meta.as_ref(),
+                    )
+                    .await
+                {
                     Ok(resp) => serde_json::json!({
                         "ok": true,
                         "dispatched_to": tl_name,
                         "priority": priority,
                         "response": resp,
-                    }).to_string(),
+                    })
+                    .to_string(),
                     Err(e) => serde_json::json!({
                         "ok": false,
                         "error": e.to_string(),
-                    }).to_string(),
+                    })
+                    .to_string(),
                 }
             }
             "list_tl_agents" => {
@@ -1017,14 +1297,84 @@ impl Runtime {
             }
             "create_goal_task" => {
                 let title = args.get("title").and_then(|v| v.as_str()).unwrap_or("");
-                let description = args.get("description").and_then(|v| v.as_str()).unwrap_or("");
-                let priority = args.get("priority").and_then(|v| v.as_str()).unwrap_or("normal");
+                let description = args
+                    .get("description")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                let priority = args
+                    .get("priority")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("normal");
                 if title.is_empty() {
                     return serde_json::json!({"error": "title is required"}).to_string();
                 }
-                match self.ams.create_goal_task(title, description, priority, caller_agent_id).await {
+                match self
+                    .ams
+                    .create_goal_task(title, description, priority, caller_agent_id)
+                    .await
+                {
                     Ok(resp) => resp,
                     Err(e) => serde_json::json!({"error": e.to_string()}).to_string(),
+                }
+            }
+            "create_memory" => {
+                let content = args.get("content").and_then(|v| v.as_str()).unwrap_or("");
+                if content.trim().is_empty() {
+                    return serde_json::json!({"error": "content is required"}).to_string();
+                }
+                let tier = args
+                    .get("tier")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("episodic");
+                if !matches!(tier, "episodic" | "semantic" | "procedural") {
+                    return serde_json::json!({
+                        "error": "tier must be one of episodic, semantic, procedural"
+                    })
+                    .to_string();
+                }
+                let mut tags: Vec<String> = args
+                    .get("tags")
+                    .and_then(|v| v.as_array())
+                    .map(|values| {
+                        values
+                            .iter()
+                            .filter_map(|v| v.as_str())
+                            .map(str::to_string)
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let agent_tag = format!("agent:{}", caller_agent_id);
+                if !tags.iter().any(|tag| tag == &agent_tag) {
+                    tags.push(agent_tag);
+                }
+                let title = args
+                    .get("title")
+                    .and_then(|v| v.as_str())
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(str::to_string)
+                    .unwrap_or_else(|| format!("{} memory receipt", caller_agent_id));
+
+                let memory = abot_ams::memory::CreateMemoryRequest {
+                    title,
+                    content: content.to_string(),
+                    memory_tier: tier.to_string(),
+                    entity_type: "event".to_string(),
+                    importance: 0.6,
+                    tags,
+                    metadata: Some(serde_json::json!({
+                        "source_agent": caller_agent_id,
+                        "source": "agent_tool:create_memory",
+                    })),
+                };
+                match self.ams.create_memory(memory).await {
+                    Ok(resp) => serde_json::json!({
+                        "ok": true,
+                        "memory_id": resp.get("id").or_else(|| resp.get("memory_id")),
+                        "response": resp,
+                    })
+                    .to_string(),
+                    Err(e) => serde_json::json!({"ok": false, "error": e.to_string()}).to_string(),
                 }
             }
             "search_memories" => {
@@ -1044,7 +1394,7 @@ impl Runtime {
                             serde_json::json!({
                                 "file_path": file_path,
                                 "tags": tags,
-                                "snippet": if snippet.len() > 200 { snippet[..200].to_string() } else { snippet },
+                                "snippet": snippet.chars().take(200).collect::<String>(),
                                 "score": score,
                             })
                         }).collect();
@@ -1053,6 +1403,10 @@ impl Runtime {
                     Err(e) => serde_json::json!({"error": e.to_string()}).to_string(),
                 }
             }
+            "get_task_board" => match self.ams.get_task_board().await {
+                Ok(board) => task_board_summary(&board).to_string(),
+                Err(e) => serde_json::json!({"error": e.to_string()}).to_string(),
+            },
             "list_workers" => {
                 // Scope to this TL's domain-prefixed specialists. If we're
                 // not a TL (no tl- prefix), fall back to the unscoped
@@ -1064,26 +1418,56 @@ impl Runtime {
                 };
                 match result {
                     Ok(agents) => {
-                        let names: Vec<String> = agents.iter().filter_map(|a| {
-                            let id = a.get("agent_id").and_then(|v| v.as_str())?;
-                            if id.starts_with("tl-") || id == "memory-curator" {
-                                None
-                            } else {
-                                Some(id.to_string())
-                            }
-                        }).collect();
+                        let names: Vec<String> = agents
+                            .iter()
+                            .filter_map(|a| {
+                                let id = a.get("agent_id").and_then(|v| v.as_str())?;
+                                if id.starts_with("tl-") || id == "memory-curator" {
+                                    None
+                                } else {
+                                    Some(id.to_string())
+                                }
+                            })
+                            .collect();
                         serde_json::json!({
                             "workers": names,
                             "count": names.len(),
                             "scope_prefix": prefix,
-                        }).to_string()
+                        })
+                        .to_string()
                     }
                     Err(e) => serde_json::json!({"error": e.to_string()}).to_string(),
                 }
             }
-            _ => {
-                serde_json::json!({"error": format!("Unknown tool: {}", name)}).to_string()
+            "mcp_list_servers" => match self.ams.mcp_list_servers().await {
+                Ok(resp) => resp.to_string(),
+                Err(e) => serde_json::json!({"error": e.to_string()}).to_string(),
+            },
+            "mcp_call_tool" => {
+                let server = args.get("server").and_then(|v| v.as_str()).unwrap_or("");
+                let tool = args.get("tool").and_then(|v| v.as_str()).unwrap_or("");
+                let tool_args = args
+                    .get("arguments")
+                    .cloned()
+                    .unwrap_or_else(|| serde_json::json!({}));
+                let timeout_seconds = args
+                    .get("timeout_seconds")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(30) as f64;
+                if server.is_empty() || tool.is_empty() {
+                    return serde_json::json!({"error": "server and tool are required"})
+                        .to_string();
+                }
+                match self
+                    .ams
+                    .mcp_call_tool(server, tool, &tool_args, timeout_seconds)
+                    .await
+                {
+                    Ok(resp) => resp.to_string(),
+                    Err(e) => serde_json::json!({"error": e.to_string()}).to_string(),
+                }
             }
+            _ => serde_json::json!({"error": format!("Unknown tool: {}", name)}).to_string(),
         }
     }
 
@@ -1108,6 +1492,56 @@ impl Runtime {
     /// `dispatch_to_worker.worker_name` argument to a real enum of agents
     /// that actually exist in the agents table, so the LLM cannot hallucinate
     /// a name like "coder" that would fail downstream spawn.
+    fn create_memory_tool_definition() -> serde_json::Value {
+        serde_json::json!({
+            "type": "function",
+            "function": {
+                "name": "create_memory",
+                "description": "Write a durable AMS memory receipt or domain note.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "content": {
+                            "type": "string",
+                            "description": "Memory content to persist."
+                        },
+                        "tier": {
+                            "type": "string",
+                            "enum": ["episodic", "semantic", "procedural"],
+                            "description": "Memory tier (default episodic).",
+                            "default": "episodic"
+                        },
+                        "tags": {
+                            "type": "array",
+                            "items": { "type": "string" },
+                            "description": "Tags to attach to the memory.",
+                            "default": []
+                        },
+                        "title": {
+                            "type": "string",
+                            "description": "Optional short title."
+                        }
+                    },
+                    "required": ["content"]
+                }
+            }
+        })
+    }
+
+    fn get_task_board_tool_definition() -> serde_json::Value {
+        serde_json::json!({
+            "type": "function",
+            "function": {
+                "name": "get_task_board",
+                "description": "Read the AMS task board summary: pending/active/done/failed counts and top task titles.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {}
+                }
+            }
+        })
+    }
+
     fn tl_tool_definitions(specialists: &[serde_json::Value]) -> Vec<serde_json::Value> {
         let specialist_names: Vec<String> = specialists
             .iter()
@@ -1125,13 +1559,20 @@ impl Runtime {
             let bullets: Vec<String> = specialists
                 .iter()
                 .filter_map(|a| {
-                    let name = a.get("agent_id").or_else(|| a.get("name")).and_then(|v| v.as_str())?;
-                    let desc = a.get("description").and_then(|v| v.as_str()).unwrap_or("").trim();
+                    let name = a
+                        .get("agent_id")
+                        .or_else(|| a.get("name"))
+                        .and_then(|v| v.as_str())?;
+                    let desc = a
+                        .get("description")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .trim();
                     if desc.is_empty() {
                         Some(format!("- {}", name))
                     } else {
-                        let short = if desc.len() > 160 {
-                            format!("{}...", &desc[..160])
+                        let short = if desc.chars().count() > 160 {
+                            format!("{}...", desc.chars().take(160).collect::<String>())
                         } else {
                             desc.to_string()
                         };
@@ -1171,6 +1612,10 @@ impl Runtime {
                             "task": {
                                 "type": "string",
                                 "description": "Detailed task description for the worker. Include context, requirements, and expected deliverables."
+                            },
+                            "timeout_secs": {
+                                "type": "integer",
+                                "description": "How long to wait for the worker's result before reporting it as still-running (default 900). Workers keep running past this; their output persists on the Observatory execution row."
                             }
                         },
                         "required": ["worker_name", "task"]
@@ -1199,6 +1644,8 @@ impl Runtime {
                     }
                 }
             }),
+            Self::create_memory_tool_definition(),
+            Self::get_task_board_tool_definition(),
             serde_json::json!({
                 "type": "function",
                 "function": {
@@ -1302,11 +1749,91 @@ impl Runtime {
                     }
                 }
             }),
+            Self::create_memory_tool_definition(),
+            Self::get_task_board_tool_definition(),
+        ]
+    }
+
+    /// Tool definitions for non-TL agents when tools are enabled via grants/env.
+    ///
+    /// These tools bridge into AMS MCP Gateway so a worker can actually execute
+    /// MCP-backed capabilities instead of being stuck with orchestrator-only tools.
+    fn mcp_bridge_tool_definitions() -> Vec<serde_json::Value> {
+        vec![
+            serde_json::json!({
+                "type": "function",
+                "function": {
+                    "name": "mcp_list_servers",
+                    "description": "List MCP servers available through AMS gateway and their health/connectivity stats.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {}
+                    }
+                }
+            }),
+            serde_json::json!({
+                "type": "function",
+                "function": {
+                    "name": "mcp_call_tool",
+                    "description": "Call a tool on an MCP server through AMS MCP gateway.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "server": {
+                                "type": "string",
+                                "description": "MCP server name (use mcp_list_servers first)."
+                            },
+                            "tool": {
+                                "type": "string",
+                                "description": "Tool name exposed by the selected MCP server."
+                            },
+                            "arguments": {
+                                "type": "object",
+                                "description": "Arguments object passed to the MCP tool.",
+                                "default": {}
+                            },
+                            "timeout_seconds": {
+                                "type": "integer",
+                                "description": "Optional timeout in seconds (default 30).",
+                                "default": 30
+                            }
+                        },
+                        "required": ["server", "tool"]
+                    }
+                }
+            }),
+            serde_json::json!({
+                "type": "function",
+                "function": {
+                    "name": "search_memories",
+                    "description": "Search AMS memories for relevant context before/after MCP calls.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "query": {
+                                "type": "string",
+                                "description": "Search query to find relevant memories"
+                            },
+                            "limit": {
+                                "type": "integer",
+                                "description": "Max results to return (default 5)",
+                                "default": 5
+                            }
+                        },
+                        "required": ["query"]
+                    }
+                }
+            }),
+            Self::create_memory_tool_definition(),
+            Self::get_task_board_tool_definition(),
         ]
     }
 
     async fn generate_response(&self, prompt: &str) -> Result<GenerationResult> {
-        let system_prompt = self.hand.as_ref().and_then(|hand| hand.system_prompt.clone());
+        let system_prompt = self
+            .hand
+            .as_ref()
+            .and_then(|hand| hand.system_prompt.clone());
 
         if let Some(bridge) = self.kilo_bridge() {
             let mode = self.kilo_mode();
@@ -1316,8 +1843,9 @@ impl Runtime {
                 prompt.to_string()
             };
 
-            let response = tokio::task::spawn_blocking(move || bridge.execute(&prompt_for_kilo, mode))
-                .await??;
+            let response =
+                tokio::task::spawn_blocking(move || bridge.execute(&prompt_for_kilo, mode))
+                    .await??;
 
             return Ok(GenerationResult {
                 content: response.content,
@@ -1329,14 +1857,17 @@ impl Runtime {
         }
 
         let requested_model = self.requested_model();
-        let response = self.ams.complete(&CompletionRequest {
-            prompt: prompt.to_string(),
-            max_tokens: 4000,
-            role: "agent".to_string(),
-            model: Some(requested_model),
-            system_prompt,
-            temperature: None,
-        }).await?;
+        let response = self
+            .ams
+            .complete(&CompletionRequest {
+                prompt: prompt.to_string(),
+                max_tokens: 4000,
+                role: "agent".to_string(),
+                model: Some(requested_model),
+                system_prompt,
+                temperature: None,
+            })
+            .await?;
 
         Ok(GenerationResult {
             content: response.text,
@@ -1412,16 +1943,19 @@ impl Runtime {
         // - Creating continuation with next_action
         // - Updating governance FSM
         // - Fleet coordination
-        let _death_response = self.ams.death(abot_ams::warden::DeathRequest {
-            agent_id: state.agent_id.clone(),
-            original_goal: String::new(), // TODO: track current goal
-            next_action: String::new(),    // TODO: determine next action
-            completed_subtasks: vec![],    // TODO: track subtasks
-            remaining_subtasks: vec![],
-            handoff_notes: None,
-            memories: vec![],              // TODO: crystallize session memories
-            context_pct: state.context_pct,
-        }).await?;
+        let _death_response = self
+            .ams
+            .death(abot_ams::warden::DeathRequest {
+                agent_id: state.agent_id.clone(),
+                original_goal: String::new(), // TODO: track current goal
+                next_action: String::new(),   // TODO: determine next action
+                completed_subtasks: vec![],   // TODO: track subtasks
+                remaining_subtasks: vec![],
+                handoff_notes: None,
+                memories: vec![], // TODO: crystallize session memories
+                context_pct: state.context_pct,
+            })
+            .await?;
 
         info!("Death ritual complete. Goodbye.");
         Ok(())

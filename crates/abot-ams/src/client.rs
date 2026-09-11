@@ -1,23 +1,21 @@
 use anyhow::Result;
 use reqwest::Client;
 use reqwest::Method;
+use reqwest::StatusCode;
 use std::time::Duration;
 use tracing::debug;
 use urlencoding::encode;
 
 use crate::fleet::{
-    ExecutionChunkRequest,
-    ExecutionChunkResponse,
-    FleetHeartbeatRequest,
-    FleetHeartbeatResponse,
-    FleetRegisterAgentRequest,
-    FleetRegisterAgentResponse,
-    RegisterExecutionRequest,
+    ExecutionChunkRequest, ExecutionChunkResponse, FleetHeartbeatRequest, FleetHeartbeatResponse,
+    FleetRegisterAgentRequest, FleetRegisterAgentResponse, RegisterExecutionRequest,
     RegisterExecutionResponse,
 };
-use crate::llm::{CompletionRequest, CompletionResponse, ToolCompletionRequest, ToolCompletionResponse};
-use crate::warden::{BirthRequest, BirthResponse, DeathRequest, DeathResponse};
+use crate::llm::{
+    CompletionRequest, CompletionResponse, ToolCompletionRequest, ToolCompletionResponse,
+};
 use crate::warden::{AmsHeartbeatResponse, HeartbeatPayload, HeartbeatResponse};
+use crate::warden::{BirthRequest, BirthResponse, DeathRequest, DeathResponse};
 
 /// HTTP client for communicating with AMS backend.
 /// The abot is a dumb body — AMS is the brain.
@@ -62,7 +60,8 @@ impl AmsClient {
         let url = format!("{}/api/warden/heartbeat", self.base_url);
         debug!(url = %url, agent_id = %payload.agent_id, "Sending heartbeat");
 
-        let raw = self.request(Method::POST, url)
+        let raw = self
+            .request(Method::POST, url)
             .json(&payload)
             .send()
             .await?
@@ -78,7 +77,8 @@ impl AmsClient {
         let url = format!("{}/api/warden/birth", self.base_url);
         debug!(url = %url, agent = %request.agent_name, "Executing birth ritual");
 
-        let resp = self.request(Method::POST, url)
+        let resp = self
+            .request(Method::POST, url)
             .json(&request)
             .send()
             .await?
@@ -94,7 +94,8 @@ impl AmsClient {
         let url = format!("{}/api/warden/death", self.base_url);
         debug!(url = %url, agent_id = %request.agent_id, "Executing death ritual");
 
-        let resp = self.request(Method::POST, url)
+        let resp = self
+            .request(Method::POST, url)
             .json(&request)
             .send()
             .await?
@@ -113,7 +114,8 @@ impl AmsClient {
             encode(agent_id)
         );
 
-        let resp = self.request(Method::GET, url)
+        let resp = self
+            .request(Method::GET, url)
             .send()
             .await?
             .error_for_status()?
@@ -128,7 +130,8 @@ impl AmsClient {
         request: &RegisterExecutionRequest,
     ) -> Result<RegisterExecutionResponse> {
         let url = format!("{}/api/fleet/executions/register", self.base_url);
-        let resp = self.request(Method::POST, url)
+        let resp = self
+            .request(Method::POST, url)
             .json(request)
             .send()
             .await?
@@ -143,8 +146,12 @@ impl AmsClient {
         execution_id: &str,
         chunk: &ExecutionChunkRequest,
     ) -> Result<ExecutionChunkResponse> {
-        let url = format!("{}/api/fleet/executions/{}/emit", self.base_url, execution_id);
-        let resp = self.request(Method::POST, url)
+        let url = format!(
+            "{}/api/fleet/executions/{}/emit",
+            self.base_url, execution_id
+        );
+        let resp = self
+            .request(Method::POST, url)
             .json(chunk)
             .send()
             .await?
@@ -154,13 +161,11 @@ impl AmsClient {
         Ok(resp)
     }
 
-    pub async fn complete(
-        &self,
-        request: &CompletionRequest,
-    ) -> Result<CompletionResponse> {
+    pub async fn complete(&self, request: &CompletionRequest) -> Result<CompletionResponse> {
         let url = format!("{}/api/v1/llm/complete", self.base_url);
         let timeout_ms = self.request_timeout_ms.max(180_000);
-        let resp = self.request(Method::POST, url)
+        let resp = self
+            .request(Method::POST, url)
             .timeout(Duration::from_millis(timeout_ms))
             .json(request)
             .send()
@@ -177,10 +182,14 @@ impl AmsClient {
     /// MemoryResponse schema drifting on the server side. AMS requires the
     /// trailing slash; without it the server responds 307 and reqwest drops
     /// the request body before following.
-    pub async fn create_memory(&self, memory: crate::memory::CreateMemoryRequest) -> Result<serde_json::Value> {
+    pub async fn create_memory(
+        &self,
+        memory: crate::memory::CreateMemoryRequest,
+    ) -> Result<serde_json::Value> {
         let url = format!("{}/api/v1/memories/", self.base_url);
 
-        let resp = self.request(Method::POST, url)
+        let resp = self
+            .request(Method::POST, url)
             .json(&memory)
             .send()
             .await?
@@ -200,7 +209,8 @@ impl AmsClient {
     pub async fn search_memories(&self, query: &str, limit: u32) -> Result<Vec<serde_json::Value>> {
         let url = format!("{}/api/v1/memories/search/", self.base_url);
 
-        let resp: serde_json::Value = self.request(Method::POST, url)
+        let resp: serde_json::Value = self
+            .request(Method::POST, url)
             .json(&serde_json::json!({
                 "query": query,
                 "limit": limit,
@@ -219,7 +229,6 @@ impl AmsClient {
         Ok(results)
     }
 
-
     /// LLM completion with tool calling support.
     pub async fn complete_with_tools(
         &self,
@@ -227,7 +236,8 @@ impl AmsClient {
     ) -> Result<ToolCompletionResponse> {
         let url = format!("{}/api/v1/llm/complete-with-tools", self.base_url);
         let timeout_ms = self.request_timeout_ms.max(180_000);
-        let resp = self.request(Method::POST, url)
+        let resp = self
+            .request(Method::POST, url)
             .timeout(Duration::from_millis(timeout_ms))
             .json(request)
             .send()
@@ -264,7 +274,8 @@ impl AmsClient {
         if let Some(md) = metadata {
             payload["metadata"] = md.clone();
         }
-        let resp = self.request(Method::POST, url)
+        let resp = self
+            .request(Method::POST, url)
             .json(&payload)
             .send()
             .await?
@@ -302,7 +313,8 @@ impl AmsClient {
         if let Some(m) = model {
             payload["model"] = serde_json::Value::String(m.to_string());
         }
-        let resp = self.request(Method::POST, url)
+        let resp = self
+            .request(Method::POST, url)
             .json(&payload)
             .send()
             .await?
@@ -340,7 +352,8 @@ impl AmsClient {
             ),
             _ => format!("{}/api/v1/agents?limit=500", self.base_url),
         };
-        let resp: serde_json::Value = self.request(Method::GET, url)
+        let resp: serde_json::Value = self
+            .request(Method::GET, url)
             .send()
             .await?
             .error_for_status()?
@@ -370,12 +383,26 @@ impl AmsClient {
             "created_by": creator_agent_id,
             "source": "abot-orchestrator",
         });
-        let resp = self.request(Method::POST, url)
+        let resp = self
+            .request(Method::POST, url)
             .json(&payload)
             .send()
             .await?
             .error_for_status()?
             .text()
+            .await?;
+        Ok(resp)
+    }
+
+    /// Read the AMS goals dashboard/task board.
+    pub async fn get_task_board(&self) -> Result<serde_json::Value> {
+        let url = format!("{}/api/v1/goals/dashboard", self.base_url);
+        let resp = self
+            .request(Method::GET, url)
+            .send()
+            .await?
+            .error_for_status()?
+            .json::<serde_json::Value>()
             .await?;
         Ok(resp)
     }
@@ -389,7 +416,8 @@ impl AmsClient {
     ) -> Result<FleetHeartbeatResponse> {
         let url = format!("{}/api/fleet/heartbeat", self.base_url);
         debug!(url = %url, agent_id = %payload.agent_id, "Sending fleet heartbeat");
-        let resp = self.request(Method::POST, url)
+        let resp = self
+            .request(Method::POST, url)
             .json(payload)
             .send()
             .await?
@@ -406,7 +434,8 @@ impl AmsClient {
     ) -> Result<FleetRegisterAgentResponse> {
         let url = format!("{}/api/fleet/agents", self.base_url);
         debug!(url = %url, agent_id = %payload.agent_id, "Registering fleet agent");
-        let resp = self.request(Method::POST, url)
+        let resp = self
+            .request(Method::POST, url)
             .json(payload)
             .send()
             .await?
@@ -426,13 +455,104 @@ impl AmsClient {
             self.base_url,
             urlencoding::encode(execution_id)
         );
-        let resp = self.request(Method::GET, url)
+        let resp = self
+            .request(Method::GET, url)
             .send()
             .await?
             .error_for_status()?
             .json::<serde_json::Value>()
             .await?;
         Ok(resp)
+    }
+
+    /// Find a child Observatory execution by Warden dispatch correlation.
+    ///
+    /// Alive specialists only receive a queued Warden message immediately;
+    /// their execution id is created later when they poll and register. This
+    /// lookup bridges that gap for TL fan-in.
+    pub async fn find_execution_by_lineage(
+        &self,
+        correlation_id: Option<&str>,
+        parent_execution_id: Option<&str>,
+        agent_id: Option<&str>,
+    ) -> Result<Option<serde_json::Value>> {
+        let mut url = format!("{}/observatory/lookup/executions?limit=20", self.base_url);
+        if let Some(corr) = correlation_id {
+            url.push_str("&correlation_id=");
+            url.push_str(&urlencoding::encode(corr));
+        }
+        if let Some(parent) = parent_execution_id {
+            url.push_str("&parent_execution_id=");
+            url.push_str(&urlencoding::encode(parent));
+        }
+        if let Some(agent) = agent_id {
+            url.push_str("&agent_id=");
+            url.push_str(&urlencoding::encode(agent));
+        }
+        let resp = self
+            .request(Method::GET, url)
+            .send()
+            .await?
+            .error_for_status()?
+            .json::<serde_json::Value>()
+            .await?;
+        Ok(resp
+            .get("executions")
+            .and_then(|v| v.as_array())
+            .and_then(|items| items.first())
+            .cloned())
+    }
+
+    /// List MCP servers currently known by AMS MCP Gateway.
+    pub async fn mcp_list_servers(&self) -> Result<serde_json::Value> {
+        let url = format!("{}/gateway/mcp/servers", self.base_url);
+        let resp = self
+            .request(Method::GET, url)
+            .send()
+            .await?
+            .error_for_status()?
+            .json::<serde_json::Value>()
+            .await?;
+        Ok(resp)
+    }
+
+    /// Execute a tool on an MCP server through AMS MCP Gateway.
+    pub async fn mcp_call_tool(
+        &self,
+        server: &str,
+        tool: &str,
+        arguments: &serde_json::Value,
+        timeout_seconds: f64,
+    ) -> Result<serde_json::Value> {
+        let url = format!("{}/gateway/mcp/call", self.base_url);
+        let timeout = timeout_seconds.clamp(1.0, 300.0);
+        let payload = serde_json::json!({
+            "server": server,
+            "tool": tool,
+            "args": arguments,
+            "timeout_seconds": timeout,
+        });
+
+        let resp = self
+            .request(Method::POST, url)
+            .json(&payload)
+            .send()
+            .await?;
+
+        // If gateway endpoints are not present yet on AMS, return a structured
+        // capability error instead of hard-failing the agent turn.
+        if resp.status() == StatusCode::NOT_FOUND {
+            return Ok(serde_json::json!({
+                "success": false,
+                "error": "gateway endpoint not found (/gateway/mcp/call)",
+                "server": server,
+                "tool": tool,
+            }));
+        }
+
+        let resp = resp.error_for_status()?;
+        let data = resp.json::<serde_json::Value>().await?;
+        Ok(data)
     }
 
     /// Health check.
@@ -444,9 +564,15 @@ impl AmsClient {
 }
 
 /// A steering message from AMS (queued by DLPFC, admin, or system).
-fn default_guidance_type() -> String { "guidance".to_string() }
-fn default_dashboard_sender() -> String { "dashboard".to_string() }
-fn default_agent_recipient() -> String { "agent".to_string() }
+fn default_guidance_type() -> String {
+    "guidance".to_string()
+}
+fn default_dashboard_sender() -> String {
+    "dashboard".to_string()
+}
+fn default_agent_recipient() -> String {
+    "agent".to_string()
+}
 
 #[derive(Debug, serde::Deserialize)]
 pub struct SteeringMessage {

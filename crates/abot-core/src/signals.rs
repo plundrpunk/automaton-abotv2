@@ -9,7 +9,7 @@ pub fn setup_signal_handler() -> mpsc::Receiver<()> {
     tokio::spawn(async move {
         #[cfg(unix)]
         {
-            use tokio::signal::unix::{signal, SignalKind};
+            use tokio::signal::unix::{SignalKind, signal};
             let mut sigterm = signal(SignalKind::terminate()).expect("SIGTERM handler");
             let mut sigint = signal(SignalKind::interrupt()).expect("SIGINT handler");
 

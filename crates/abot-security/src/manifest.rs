@@ -1,6 +1,4 @@
-use ed25519_dalek::{
-    Signature, Signer, SigningKey, Verifier, VerifyingKey,
-};
+use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use rand::rngs::OsRng;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -60,8 +58,8 @@ impl ManifestSigner {
 
     /// Create a verifier from a public key (for verification only)
     pub fn from_public_key(public_bytes: &[u8; 32]) -> Result<Self, ManifestError> {
-        let verifying_key = VerifyingKey::from_bytes(public_bytes)
-            .map_err(|_| ManifestError::InvalidKey)?;
+        let verifying_key =
+            VerifyingKey::from_bytes(public_bytes).map_err(|_| ManifestError::InvalidKey)?;
 
         Ok(Self {
             signing_key: None,
@@ -71,12 +69,9 @@ impl ManifestSigner {
 
     /// Sign manifest content
     pub fn sign(&self, content: &str) -> Result<SignedManifest, ManifestError> {
-        let signing_key = self
-            .signing_key
-            .as_ref()
-            .ok_or(ManifestError::SignError(
-                "No signing key available".to_string(),
-            ))?;
+        let signing_key = self.signing_key.as_ref().ok_or(ManifestError::SignError(
+            "No signing key available".to_string(),
+        ))?;
 
         let signature = signing_key.sign(content.as_bytes());
         let public_key = signing_key.verifying_key();
@@ -95,9 +90,7 @@ impl ManifestSigner {
             .as_ref()
             .ok_or(ManifestError::VerificationFailed)?;
 
-        let signature = Signature::from_bytes(
-            &Self::decode_signature(&manifest.signature)?
-        );
+        let signature = Signature::from_bytes(&Self::decode_signature(&manifest.signature)?);
 
         match verifying_key.verify(manifest.content.as_bytes(), &signature) {
             Ok(()) => Ok(true),
@@ -107,12 +100,9 @@ impl ManifestSigner {
 
     /// Get the public key in hex format
     pub fn public_key(&self) -> Result<String, ManifestError> {
-        let key = self
-            .verifying_key
-            .as_ref()
-            .ok_or(ManifestError::SignError(
-                "No verifying key available".to_string(),
-            ))?;
+        let key = self.verifying_key.as_ref().ok_or(ManifestError::SignError(
+            "No verifying key available".to_string(),
+        ))?;
 
         Ok(hex::encode(key.as_bytes()))
     }
@@ -125,9 +115,9 @@ impl ManifestSigner {
         }
 
         for i in 0..64 {
-            let byte_str = &sig_str[i*2..i*2+2];
-            sig_bytes[i] = u8::from_str_radix(byte_str, 16)
-                .map_err(|_| ManifestError::InvalidSignature)?;
+            let byte_str = &sig_str[i * 2..i * 2 + 2];
+            sig_bytes[i] =
+                u8::from_str_radix(byte_str, 16).map_err(|_| ManifestError::InvalidSignature)?;
         }
 
         Ok(sig_bytes)

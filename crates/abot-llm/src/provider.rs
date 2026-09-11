@@ -39,11 +39,7 @@ pub enum LlmError {
 #[async_trait]
 pub trait LlmProvider: Send + Sync {
     /// Execute a prompt and get response
-    async fn execute(
-        &self,
-        prompt: &str,
-        model: &str,
-    ) -> Result<LlmResponse, LlmError>;
+    async fn execute(&self, prompt: &str, model: &str) -> Result<LlmResponse, LlmError>;
 
     /// Check if a model is available
     async fn is_available(&self, model: &str) -> bool;

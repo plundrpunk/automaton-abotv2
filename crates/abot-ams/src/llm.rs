@@ -52,4 +52,6 @@ pub struct ToolCompletionResponse {
     pub request_id: String,
 }
 
-fn default_stop() -> String { "stop".to_string() }
+fn default_stop() -> String {
+    "stop".to_string()
+}
