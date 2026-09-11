@@ -1,6 +1,7 @@
 use anyhow::Result;
 use reqwest::Client;
 use reqwest::Method;
+use reqwest::StatusCode;
 use std::time::Duration;
 use tracing::debug;
 use urlencoding::encode;
@@ -390,6 +391,19 @@ impl AmsClient {
         Ok(resp)
     }
 
+    /// Read the AMS goals dashboard/task board.
+    pub async fn get_task_board(&self) -> Result<serde_json::Value> {
+        let url = format!("{}/api/v1/goals/dashboard", self.base_url);
+        let resp = self
+            .request(Method::GET, url)
+            .send()
+            .await?
+            .error_for_status()?
+            .json::<serde_json::Value>()
+            .await?;
+        Ok(resp)
+    }
+
     /// Fleet heartbeat — populates the in-memory container_heartbeats +
     /// fleet_registered_agents maps in `app/api/fleet.py`. This is what
     /// surfaces agents on `/api/fleet/status`.
@@ -446,6 +460,100 @@ impl AmsClient {
             .json::<serde_json::Value>()
             .await?;
         Ok(resp)
+    }
+
+    /// Find a child Observatory execution by Warden dispatch correlation.
+    ///
+    /// Alive specialists only receive a queued Warden message immediately;
+    /// their execution id is created later when they poll and register. This
+    /// lookup bridges that gap for TL fan-in.
+    pub async fn find_execution_by_lineage(
+        &self,
+        correlation_id: Option<&str>,
+        parent_execution_id: Option<&str>,
+        agent_id: Option<&str>,
+    ) -> Result<Option<serde_json::Value>> {
+        let mut url = format!("{}/observatory/lookup/executions?limit=20", self.base_url);
+        if let Some(corr) = correlation_id {
+            url.push_str("&correlation_id=");
+            url.push_str(&urlencoding::encode(corr));
+        }
+        if let Some(parent) = parent_execution_id {
+            url.push_str("&parent_execution_id=");
+            url.push_str(&urlencoding::encode(parent));
+        }
+        if let Some(agent) = agent_id {
+            url.push_str("&agent_id=");
+            url.push_str(&urlencoding::encode(agent));
+        }
+        let resp = self
+            .request(Method::GET, url)
+            .send()
+            .await?
+            .error_for_status()?
+            .json::<serde_json::Value>()
+            .await?;
+        Ok(resp
+            .get("executions")
+            .and_then(|v| v.as_array())
+            .and_then(|items| items.first())
+            .cloned())
+    }
+
+    /// List MCP servers currently known by AMS MCP Gateway.
+    pub async fn mcp_list_servers(&self) -> Result<serde_json::Value> {
+        let url = format!("{}/gateway/mcp/servers", self.base_url);
+        let resp = self
+            .request(Method::GET, url)
+            .send()
+            .await?
+            .error_for_status()?
+            .json::<serde_json::Value>()
+            .await?;
+        Ok(resp)
+    }
+
+    /// Execute a tool on an MCP server through AMS MCP Gateway.
+    pub async fn mcp_call_tool(
+        &self,
+        server: &str,
+        tool: &str,
+        arguments: &serde_json::Value,
+        timeout_seconds: f64,
+    ) -> Result<serde_json::Value> {
+        let url = format!("{}/gateway/mcp/call", self.base_url);
+        let timeout = timeout_seconds.clamp(1.0, 300.0);
+        // Let the gateway finish and return its response before HTTP times out.
+        let request_timeout = Duration::from_millis(self.request_timeout_ms)
+            .max(Duration::from_secs_f64(timeout) + Duration::from_secs(5));
+        let payload = serde_json::json!({
+            "server": server,
+            "tool": tool,
+            "args": arguments,
+            "timeout_seconds": timeout,
+        });
+
+        let resp = self
+            .request(Method::POST, url)
+            .timeout(request_timeout)
+            .json(&payload)
+            .send()
+            .await?;
+
+        // If gateway endpoints are not present yet on AMS, return a structured
+        // capability error instead of hard-failing the agent turn.
+        if resp.status() == StatusCode::NOT_FOUND {
+            return Ok(serde_json::json!({
+                "success": false,
+                "error": "gateway endpoint not found (/gateway/mcp/call)",
+                "server": server,
+                "tool": tool,
+            }));
+        }
+
+        let resp = resp.error_for_status()?;
+        let data = resp.json::<serde_json::Value>().await?;
+        Ok(data)
     }
 
     /// Health check.
@@ -541,7 +649,73 @@ impl std::fmt::Debug for AmsConfig {
 
 #[cfg(test)]
 mod tests {
-    use super::{SteeringMessage, execution_chunk_url};
+    use super::{AmsClient, AmsConfig, SteeringMessage, execution_chunk_url};
+    use std::time::Duration;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    #[tokio::test]
+    async fn mcp_call_outlives_client_default_and_sends_clamped_timeout() {
+        for (requested, expected) in [(120.0, 120.0), (0.0, 1.0), (600.0, 300.0)] {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = tokio::spawn(async move {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut request = Vec::new();
+                let payload = loop {
+                    let mut chunk = [0; 1024];
+                    let count = socket.read(&mut chunk).await.unwrap();
+                    assert_ne!(count, 0, "request ended before body arrived");
+                    request.extend_from_slice(&chunk[..count]);
+                    if let Some(end) = request.windows(4).position(|w| w == b"\r\n\r\n") {
+                        let headers = std::str::from_utf8(&request[..end]).unwrap();
+                        assert!(headers.starts_with("POST /gateway/mcp/call HTTP/1.1"));
+                        let length: usize = headers
+                            .lines()
+                            .find_map(|line| {
+                                let (name, value) = line.split_once(':')?;
+                                name.eq_ignore_ascii_case("content-length")
+                                    .then(|| value.trim().parse().unwrap())
+                            })
+                            .unwrap();
+                        if request.len() >= end + 4 + length {
+                            break serde_json::from_slice::<serde_json::Value>(
+                                &request[end + 4..end + 4 + length],
+                            )
+                            .unwrap();
+                        }
+                    }
+                };
+                assert_eq!(payload["timeout_seconds"], expected);
+                assert_eq!(payload["server"], "test-server");
+                assert_eq!(payload["tool"], "test-tool");
+                assert_eq!(payload["args"], serde_json::json!({"input": "test"}));
+                // Longer than the client's 50 ms default, shorter than the tool budget.
+                tokio::time::sleep(Duration::from_millis(200)).await;
+                socket.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 16\r\nConnection: close\r\n\r\n{\"success\":true}").await.unwrap();
+            });
+            let client = AmsClient::new(&AmsConfig {
+                url: format!("http://{address}"),
+                api_key: String::new(),
+                connect_timeout_ms: 1000,
+                request_timeout_ms: 50,
+                heartbeat_interval_secs: 60,
+            })
+            .unwrap();
+            let result = tokio::time::timeout(
+                Duration::from_secs(3),
+                client.mcp_call_tool(
+                    "test-server",
+                    "test-tool",
+                    &serde_json::json!({"input": "test"}),
+                    requested,
+                ),
+            )
+            .await
+            .unwrap();
+            server.await.unwrap();
+            assert_eq!(result.unwrap(), serde_json::json!({"success": true}));
+        }
+    }
 
     #[test]
     fn steering_message_deserializes_current_warden_shape() {

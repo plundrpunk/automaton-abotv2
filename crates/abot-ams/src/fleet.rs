@@ -17,6 +17,34 @@ pub struct RegisterExecutionRequest<'a> {
     pub instance_id: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub user_id: Option<&'a str>,
+    #[serde(
+        rename = "parent_orchestration_id",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub parent_orchestration_id: Option<String>,
+    #[serde(rename = "parent_task_id", skip_serializing_if = "Option::is_none")]
+    pub parent_task_id: Option<String>,
+    #[serde(
+        rename = "parent_execution_id",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub parent_execution_id: Option<String>,
+    #[serde(rename = "trace_id", skip_serializing_if = "Option::is_none")]
+    pub trace_id: Option<String>,
+    #[serde(rename = "span_id", skip_serializing_if = "Option::is_none")]
+    pub span_id: Option<String>,
+    #[serde(rename = "parent_span_id", skip_serializing_if = "Option::is_none")]
+    pub parent_span_id: Option<String>,
+    #[serde(rename = "correlation_id", skip_serializing_if = "Option::is_none")]
+    pub correlation_id: Option<String>,
+    #[serde(rename = "dispatch_id", skip_serializing_if = "Option::is_none")]
+    pub dispatch_id: Option<String>,
+    #[serde(rename = "child_agent_id", skip_serializing_if = "Option::is_none")]
+    pub child_agent_id: Option<String>,
+    #[serde(rename = "specialist_role", skip_serializing_if = "Option::is_none")]
+    pub specialist_role: Option<String>,
+    #[serde(rename = "artifact_ref", skip_serializing_if = "Option::is_none")]
+    pub artifact_ref: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

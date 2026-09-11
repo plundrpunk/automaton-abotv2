@@ -128,7 +128,7 @@ fn terminal_worker_result(
         "execution_id": exec_id,
         "status": status,
         "terminal": true,
-        "output": exec.get("output").cloned().unwrap_or(serde_json::Value::Null),
+        "output": terminal_output(exec),
         "duration_ms": exec.get("duration_ms"),
     })
 }
@@ -148,7 +148,8 @@ fn pending_worker_result(
     exec: Option<&serde_json::Value>,
 ) -> serde_json::Value {
     let partial = exec
-        .and_then(|e| e.get("output"))
+        .map(terminal_output)
+        .as_ref()
         .and_then(|v| v.as_str())
         .map(summarize_rollup_text);
 
@@ -181,6 +182,136 @@ fn summarize_rollup_text(value: &str) -> String {
     } else {
         value.to_string()
     }
+}
+
+fn metadata_string(meta: Option<&serde_json::Value>, keys: &[&str]) -> Option<String> {
+    let meta = meta?;
+    for key in keys {
+        if let Some(value) = meta.get(*key).and_then(|v| v.as_str())
+            && !value.is_empty()
+        {
+            return Some(value.to_string());
+        }
+    }
+    None
+}
+
+fn execution_id_from_value(value: &serde_json::Value) -> Option<String> {
+    value
+        .get("execution_id")
+        .or_else(|| value.get("executionId"))
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+}
+
+fn terminal_output(value: &serde_json::Value) -> serde_json::Value {
+    value
+        .get("output")
+        .or_else(|| value.get("output_buffer"))
+        .cloned()
+        .unwrap_or(serde_json::Value::Null)
+}
+
+fn normalize_task_status(status: &str) -> Option<&'static str> {
+    match status
+        .to_ascii_lowercase()
+        .replace(['-', ' '], "_")
+        .as_str()
+    {
+        "pending" | "todo" | "to_do" | "backlog" | "open" | "queued" => Some("pending"),
+        "active" | "in_progress" | "running" | "working" | "started" => Some("active"),
+        "done" | "complete" | "completed" | "succeeded" | "closed" => Some("done"),
+        "failed" | "error" | "errored" | "killed" | "cancelled" | "canceled" => Some("failed"),
+        _ => None,
+    }
+}
+
+fn task_title(value: &serde_json::Value) -> Option<String> {
+    value
+        .get("title")
+        .or_else(|| value.get("name"))
+        .or_else(|| value.get("task"))
+        .or_else(|| value.get("description"))
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| {
+            if s.chars().count() > 120 {
+                format!("{}...", s.chars().take(120).collect::<String>())
+            } else {
+                s.to_string()
+            }
+        })
+}
+
+fn collect_task_board_items(
+    value: &serde_json::Value,
+    inherited_status: Option<&'static str>,
+    out: &mut Vec<(String, String)>,
+) {
+    match value {
+        serde_json::Value::Array(items) => {
+            for item in items {
+                collect_task_board_items(item, inherited_status, out);
+            }
+        }
+        serde_json::Value::Object(map) => {
+            let own_status = map
+                .get("status")
+                .or_else(|| map.get("state"))
+                .and_then(|v| v.as_str())
+                .and_then(normalize_task_status)
+                .or(inherited_status);
+
+            if let (Some(status), Some(title)) = (own_status, task_title(value)) {
+                out.push((status.to_string(), title));
+            }
+
+            for (key, child) in map {
+                let key_status = normalize_task_status(key).or(own_status);
+                collect_task_board_items(child, key_status, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn task_board_summary(board: &serde_json::Value) -> serde_json::Value {
+    let mut items = Vec::new();
+    collect_task_board_items(board, None, &mut items);
+
+    let mut pending = 0usize;
+    let mut active = 0usize;
+    let mut done = 0usize;
+    let mut failed = 0usize;
+    let mut top_tasks = Vec::new();
+
+    for (status, title) in items {
+        match status.as_str() {
+            "pending" => pending += 1,
+            "active" => active += 1,
+            "done" => done += 1,
+            "failed" => failed += 1,
+            _ => {}
+        }
+        if top_tasks.len() < 10 {
+            top_tasks.push(serde_json::json!({
+                "status": status,
+                "title": title,
+            }));
+        }
+    }
+
+    serde_json::json!({
+        "counts": {
+            "pending": pending,
+            "active": active,
+            "done": done,
+            "failed": failed,
+        },
+        "top_tasks": top_tasks,
+    })
 }
 
 impl Runtime {
@@ -416,6 +547,7 @@ impl Runtime {
         }
 
         let fleet_execution_id = format!("fleet-{}", Uuid::new_v4().simple());
+        let incoming_meta = message.metadata.as_ref();
         let requested_model = self.requested_model();
         let execution = self
             .ams
@@ -428,6 +560,26 @@ impl Runtime {
                 model: &requested_model,
                 instance_id: None,
                 user_id: None,
+                parent_orchestration_id: metadata_string(
+                    incoming_meta,
+                    &["parent_orchestration_id"],
+                ),
+                parent_task_id: metadata_string(incoming_meta, &["parent_task_id"]),
+                parent_execution_id: metadata_string(
+                    incoming_meta,
+                    &["parent_execution_id", "parent_exec_id"],
+                ),
+                trace_id: metadata_string(incoming_meta, &["trace_id"]),
+                span_id: metadata_string(incoming_meta, &["span_id"]),
+                parent_span_id: metadata_string(incoming_meta, &["parent_span_id"]),
+                correlation_id: metadata_string(incoming_meta, &["correlation_id", "dispatch_id"]),
+                dispatch_id: metadata_string(incoming_meta, &["dispatch_id", "correlation_id"]),
+                child_agent_id: metadata_string(incoming_meta, &["child_agent_id"]),
+                specialist_role: metadata_string(
+                    incoming_meta,
+                    &["specialist_role", "child_agent_id"],
+                ),
+                artifact_ref: metadata_string(incoming_meta, &["artifact_ref"]),
             })
             .await?;
 
@@ -480,7 +632,10 @@ impl Runtime {
             .as_ref()
             .map(|g| g.enable_tools)
             .unwrap_or(false);
-        let has_tools = archetype_enables_tools || grants_enable_tools;
+        let env_enable_tools = std::env::var("AUTOMATON_ENABLE_TOOLS")
+            .map(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+            .unwrap_or(false);
+        let has_tools = env_enable_tools || archetype_enables_tools || grants_enable_tools;
 
         // If this activation was spawned by a parent orchestrator's
         // dispatch_to_tl, capture the rollup breadcrumbs so the tool loop
@@ -488,7 +643,6 @@ impl Runtime {
         // arriving at an orchestrator, we're the terminus (rollup_target
         // stays None) and the prompt is augmented instead so the LLM
         // knows to synthesize the TL's result for the user.
-        let incoming_meta = message.metadata.as_ref();
         // chat_session_id rides on any msg_type originating from a
         // dashboard-initiated turn. We pluck it once here and thread it
         // through run_tool_loop; on completion the runtime posts its
@@ -724,7 +878,8 @@ impl Runtime {
                 );
                 Self::tl_tool_definitions(&specialists)
             }
-            _ => Self::orchestrator_tool_definitions(),
+            "orchestrator" => Self::orchestrator_tool_definitions(),
+            _ => Self::mcp_bridge_tool_definitions(),
         };
 
         let mut messages: Vec<serde_json::Value> = Vec::new();
@@ -833,12 +988,16 @@ impl Runtime {
                     )
                     .await;
 
+                let caller_registry_execution_id = state
+                    .current_execution
+                    .as_deref()
+                    .unwrap_or(fleet_execution_id);
                 let tool_result = self
                     .execute_tool(
                         func_name,
                         &func_args,
                         &state.agent_id,
-                        Some(fleet_execution_id),
+                        Some(caller_registry_execution_id),
                         chat_session_id,
                     )
                     .await;
@@ -952,9 +1111,15 @@ impl Runtime {
             // gets a ding on next-idle rather than having to poll.
             if let Some((parent_agent, parent_exec)) = rollup_target {
                 let summary = summarize_rollup_text(&final_text);
+                let child_registry_execution_id = state
+                    .current_execution
+                    .as_deref()
+                    .unwrap_or(fleet_execution_id);
                 let mut rollup_meta = serde_json::json!({
                     "parent_exec_id": parent_exec,
-                    "child_exec_id": fleet_execution_id,
+                    "parent_execution_id": parent_exec,
+                    "child_exec_id": child_registry_execution_id,
+                    "child_fleet_execution_id": fleet_execution_id,
                     "child_agent_id": state.agent_id,
                     "memory_id": memory_id.clone().unwrap_or_default(),
                 });
@@ -1064,18 +1229,45 @@ impl Runtime {
                 let timeout_secs = args
                     .get("timeout_secs")
                     .and_then(|v| v.as_u64())
-                    .unwrap_or(180);
+                    .unwrap_or(900);
                 if worker.is_empty() || task.is_empty() {
                     return serde_json::json!({"error": "worker_name and task are required"})
                         .to_string();
                 }
 
-                // Step 1: dispatch. AMS now returns execution_id when
-                // spawn_triggered=true (paired with agent-memory-backend
-                // commit fdcf223).
+                // Step 1: dispatch with durable lineage. AMS returns an
+                // execution_id when spawn_triggered=true, but a worker that
+                // was ALREADY ALIVE only gets a queued Warden message; its
+                // execution row shows up later, when it polls and registers
+                // the task. correlation_id/dispatch_id is what lets us find
+                // that later Observatory row instead of dead-ending on
+                // "enqueued_only".
+                let dispatch_id = format!("dispatch-{}", Uuid::new_v4().simple());
+                let mut dispatch_meta = serde_json::json!({
+                    "parent_agent_id": caller_agent_id,
+                    "correlation_id": dispatch_id,
+                    "dispatch_id": dispatch_id,
+                    "child_agent_id": worker,
+                    "specialist_role": worker,
+                });
+                if let Some(exec) = caller_exec_id {
+                    dispatch_meta["parent_exec_id"] = serde_json::Value::String(exec.to_string());
+                    dispatch_meta["parent_execution_id"] =
+                        serde_json::Value::String(exec.to_string());
+                }
+                if let Some(cs) = chat_session_id {
+                    dispatch_meta["chat_session_id"] = serde_json::Value::String(cs.to_string());
+                }
+
                 let dispatch = match self
                     .ams
-                    .send_steering_message(worker, task, "task", caller_agent_id, None)
+                    .send_steering_message(
+                        worker,
+                        task,
+                        "task",
+                        caller_agent_id,
+                        Some(&dispatch_meta),
+                    )
                     .await
                 {
                     Ok(v) => v,
@@ -1087,65 +1279,121 @@ impl Runtime {
                     }
                 };
 
-                let exec_id = match dispatch.get("execution_id").and_then(|v| v.as_str()) {
-                    Some(s) if !s.is_empty() => s.to_string(),
-                    _ => {
-                        // Worker was already alive; message just queued.
-                        // Nothing fresh to wait on.
-                        return serde_json::json!({
-                            "ok": true,
-                            "dispatched_to": worker,
-                            "status": "enqueued_only",
-                            "note": "worker was alive; message queued but no new execution",
-                            "response": dispatch,
-                        })
-                        .to_string();
-                    }
-                };
+                let mut exec_id = execution_id_from_value(&dispatch);
 
-                // Step 2: poll the observatory until terminal, then return
-                // the output so the orchestrator can synthesize.
+                // Step 2: poll the observatory until the child row appears
+                // and reaches a terminal status, then return its output so
+                // the caller can synthesize a real fan-in rollup.
                 let deadline =
                     std::time::Instant::now() + std::time::Duration::from_secs(timeout_secs);
                 let poll_interval = std::time::Duration::from_secs(2);
+                let parent_exec_owned = caller_exec_id.map(str::to_string);
 
                 let mut last_exec: Option<serde_json::Value> = None;
                 let mut last_status = "unknown".to_string();
 
                 loop {
                     if std::time::Instant::now() > deadline {
-                        return pending_worker_result(
-                            Some(worker),
-                            &exec_id,
-                            &last_status,
-                            timeout_secs,
-                            last_exec.as_ref(),
-                        )
-                        .to_string();
-                    }
-                    match self.ams.get_execution(&exec_id).await {
-                        Ok(exec) => {
-                            let status = exec
-                                .get("status")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("unknown")
-                                .to_string();
-                            if is_terminal_exec_status(&status) {
-                                return terminal_worker_result(
+                        // Running out of wait is NOT a failed dispatch: the
+                        // worker keeps going and its output lands on the same
+                        // execution row. Hand back the exact poll call that
+                        // fans it in on a later turn.
+                        return match exec_id.as_deref() {
+                            Some(id) => {
+                                let mut pending = pending_worker_result(
                                     Some(worker),
-                                    &exec_id,
-                                    &status,
-                                    &exec,
-                                )
-                                .to_string();
+                                    id,
+                                    &last_status,
+                                    timeout_secs,
+                                    last_exec.as_ref(),
+                                );
+                                pending["correlation_id"] =
+                                    serde_json::Value::String(dispatch_id.clone());
+                                pending.to_string()
                             }
-                            last_status = status;
-                            last_exec = Some(exec);
+                            None => serde_json::json!({
+                                "ok": false,
+                                "dispatched_to": worker,
+                                "execution_id": serde_json::Value::Null,
+                                "status": "no_execution_row",
+                                "terminal": false,
+                                "waited_secs": timeout_secs,
+                                "correlation_id": dispatch_id,
+                                "note": concat!(
+                                    "The worker was dispatched but no execution row ",
+                                    "appeared for this correlation_id within the wait ",
+                                    "window. The steering message is queued; confirm the ",
+                                    "worker is alive before re-dispatching.",
+                                ),
+                                "response": dispatch,
+                            })
+                            .to_string(),
+                        };
+                    }
+
+                    // The row may not exist yet (already-alive worker), so
+                    // look it up by the lineage we stamped on the dispatch.
+                    if exec_id.is_none() {
+                        match self
+                            .ams
+                            .find_execution_by_lineage(
+                                Some(&dispatch_id),
+                                parent_exec_owned.as_deref(),
+                                Some(worker),
+                            )
+                            .await
+                        {
+                            Ok(Some(found)) => {
+                                exec_id = execution_id_from_value(&found);
+                                if exec_id.is_none() {
+                                    tracing::debug!(
+                                        correlation_id = %dispatch_id,
+                                        "lineage lookup returned row without execution id"
+                                    );
+                                }
+                            }
+                            Ok(None) => {}
+                            Err(e) => {
+                                tracing::debug!(
+                                    correlation_id = %dispatch_id,
+                                    err = %e,
+                                    "lineage lookup transient"
+                                );
+                            }
                         }
-                        Err(e) => {
-                            // 404s are expected for the first few polls
-                            // while the background spawn writes the row.
-                            tracing::debug!(exec_id = %exec_id, err = %e, "get_execution transient");
+                    }
+
+                    if let Some(current_exec_id) = exec_id.as_deref() {
+                        match self.ams.get_execution(current_exec_id).await {
+                            Ok(exec) => {
+                                let status = exec
+                                    .get("status")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("unknown")
+                                    .to_string();
+                                if is_terminal_exec_status(&status) {
+                                    let mut terminal = terminal_worker_result(
+                                        Some(worker),
+                                        current_exec_id,
+                                        &status,
+                                        &exec,
+                                    );
+                                    terminal["correlation_id"] =
+                                        serde_json::Value::String(dispatch_id.clone());
+                                    return terminal.to_string();
+                                }
+                                last_status = status;
+                                last_exec = Some(exec);
+                            }
+                            Err(e) => {
+                                // 404s are expected for the first few polls
+                                // while the background spawn writes the row.
+                                tracing::debug!(
+                                    exec_id = %current_exec_id,
+                                    err = %e,
+                                    "get_execution transient"
+                                );
+                            }
                         }
                     }
                     tokio::time::sleep(poll_interval).await;
@@ -1326,6 +1574,66 @@ impl Runtime {
                     Err(e) => serde_json::json!({"error": e.to_string()}).to_string(),
                 }
             }
+            "create_memory" => {
+                let content = args.get("content").and_then(|v| v.as_str()).unwrap_or("");
+                if content.trim().is_empty() {
+                    return serde_json::json!({"error": "content is required"}).to_string();
+                }
+                let tier = args
+                    .get("tier")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("episodic");
+                if !matches!(tier, "episodic" | "semantic" | "procedural") {
+                    return serde_json::json!({
+                        "error": "tier must be one of episodic, semantic, procedural"
+                    })
+                    .to_string();
+                }
+                let mut tags: Vec<String> = args
+                    .get("tags")
+                    .and_then(|v| v.as_array())
+                    .map(|values| {
+                        values
+                            .iter()
+                            .filter_map(|v| v.as_str())
+                            .map(str::to_string)
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let agent_tag = format!("agent:{}", caller_agent_id);
+                if !tags.iter().any(|tag| tag == &agent_tag) {
+                    tags.push(agent_tag);
+                }
+                let title = args
+                    .get("title")
+                    .and_then(|v| v.as_str())
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(str::to_string)
+                    .unwrap_or_else(|| format!("{} memory receipt", caller_agent_id));
+
+                let memory = abot_ams::memory::CreateMemoryRequest {
+                    title,
+                    content: content.to_string(),
+                    memory_tier: tier.to_string(),
+                    entity_type: "event".to_string(),
+                    importance: 0.6,
+                    tags,
+                    metadata: Some(serde_json::json!({
+                        "source_agent": caller_agent_id,
+                        "source": "agent_tool:create_memory",
+                    })),
+                };
+                match self.ams.create_memory(memory).await {
+                    Ok(resp) => serde_json::json!({
+                        "ok": true,
+                        "memory_id": resp.get("id").or_else(|| resp.get("memory_id")),
+                        "response": resp,
+                    })
+                    .to_string(),
+                    Err(e) => serde_json::json!({"ok": false, "error": e.to_string()}).to_string(),
+                }
+            }
             "search_memories" => {
                 let query = args.get("query").and_then(|v| v.as_str()).unwrap_or("");
                 let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(5) as u32;
@@ -1367,6 +1675,10 @@ impl Runtime {
                     Err(e) => serde_json::json!({"error": e.to_string()}).to_string(),
                 }
             }
+            "get_task_board" => match self.ams.get_task_board().await {
+                Ok(board) => task_board_summary(&board).to_string(),
+                Err(e) => serde_json::json!({"error": e.to_string()}).to_string(),
+            },
             "list_workers" => {
                 // Scope to this TL's domain-prefixed specialists. If we're
                 // not a TL (no tl- prefix), fall back to the unscoped
@@ -1399,6 +1711,34 @@ impl Runtime {
                     Err(e) => serde_json::json!({"error": e.to_string()}).to_string(),
                 }
             }
+            "mcp_list_servers" => match self.ams.mcp_list_servers().await {
+                Ok(resp) => resp.to_string(),
+                Err(e) => serde_json::json!({"error": e.to_string()}).to_string(),
+            },
+            "mcp_call_tool" => {
+                let server = args.get("server").and_then(|v| v.as_str()).unwrap_or("");
+                let tool = args.get("tool").and_then(|v| v.as_str()).unwrap_or("");
+                let tool_args = args
+                    .get("arguments")
+                    .cloned()
+                    .unwrap_or_else(|| serde_json::json!({}));
+                let timeout_seconds = args
+                    .get("timeout_seconds")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(30) as f64;
+                if server.is_empty() || tool.is_empty() {
+                    return serde_json::json!({"error": "server and tool are required"})
+                        .to_string();
+                }
+                match self
+                    .ams
+                    .mcp_call_tool(server, tool, &tool_args, timeout_seconds)
+                    .await
+                {
+                    Ok(resp) => resp.to_string(),
+                    Err(e) => serde_json::json!({"error": e.to_string()}).to_string(),
+                }
+            }
             _ => serde_json::json!({"error": format!("Unknown tool: {}", name)}).to_string(),
         }
     }
@@ -1424,6 +1764,56 @@ impl Runtime {
     /// `dispatch_to_worker.worker_name` argument to a real enum of agents
     /// that actually exist in the agents table, so the LLM cannot hallucinate
     /// a name like "coder" that would fail downstream spawn.
+    fn create_memory_tool_definition() -> serde_json::Value {
+        serde_json::json!({
+            "type": "function",
+            "function": {
+                "name": "create_memory",
+                "description": "Write a durable AMS memory receipt or domain note.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "content": {
+                            "type": "string",
+                            "description": "Memory content to persist."
+                        },
+                        "tier": {
+                            "type": "string",
+                            "enum": ["episodic", "semantic", "procedural"],
+                            "description": "Memory tier (default episodic).",
+                            "default": "episodic"
+                        },
+                        "tags": {
+                            "type": "array",
+                            "items": { "type": "string" },
+                            "description": "Tags to attach to the memory.",
+                            "default": []
+                        },
+                        "title": {
+                            "type": "string",
+                            "description": "Optional short title."
+                        }
+                    },
+                    "required": ["content"]
+                }
+            }
+        })
+    }
+
+    fn get_task_board_tool_definition() -> serde_json::Value {
+        serde_json::json!({
+            "type": "function",
+            "function": {
+                "name": "get_task_board",
+                "description": "Read the AMS task board summary: pending/active/done/failed counts and top task titles.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {}
+                }
+            }
+        })
+    }
+
     fn tl_tool_definitions(specialists: &[serde_json::Value]) -> Vec<serde_json::Value> {
         let specialist_names: Vec<String> = specialists
             .iter()
@@ -1498,8 +1888,8 @@ impl Runtime {
                             },
                             "timeout_secs": {
                                 "type": "integer",
-                                "description": "How long to wait for the worker before returning status 'still_running' (default 180 - too short for real work). Pass 900 for anything involving a shell, a repo, or tests. Running out of time is not a failure: fan the result in later with poll_worker_execution.",
-                                "default": 180
+                                "description": "How long to wait for the worker's result before returning status 'still_running' (default 900). Workers keep running past this and their output persists on the Observatory execution row, so running out of time is not a failure: fan the result in later with poll_worker_execution.",
+                                "default": 900
                             }
                         },
                         "required": ["worker_name", "task"]
@@ -1550,6 +1940,8 @@ impl Runtime {
                     }
                 }
             }),
+            Self::create_memory_tool_definition(),
+            Self::get_task_board_tool_definition(),
             serde_json::json!({
                 "type": "function",
                 "function": {
@@ -1653,6 +2045,83 @@ impl Runtime {
                     }
                 }
             }),
+            Self::create_memory_tool_definition(),
+            Self::get_task_board_tool_definition(),
+        ]
+    }
+
+    /// Tool definitions for non-TL agents when tools are enabled via grants/env.
+    ///
+    /// These tools bridge into AMS MCP Gateway so a worker can actually execute
+    /// MCP-backed capabilities instead of being stuck with orchestrator-only tools.
+    fn mcp_bridge_tool_definitions() -> Vec<serde_json::Value> {
+        vec![
+            serde_json::json!({
+                "type": "function",
+                "function": {
+                    "name": "mcp_list_servers",
+                    "description": "List MCP servers available through AMS gateway and their health/connectivity stats.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {}
+                    }
+                }
+            }),
+            serde_json::json!({
+                "type": "function",
+                "function": {
+                    "name": "mcp_call_tool",
+                    "description": "Call a tool on an MCP server through AMS MCP gateway.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "server": {
+                                "type": "string",
+                                "description": "MCP server name (use mcp_list_servers first)."
+                            },
+                            "tool": {
+                                "type": "string",
+                                "description": "Tool name exposed by the selected MCP server."
+                            },
+                            "arguments": {
+                                "type": "object",
+                                "description": "Arguments object passed to the MCP tool.",
+                                "default": {}
+                            },
+                            "timeout_seconds": {
+                                "type": "integer",
+                                "description": "Optional timeout in seconds (default 30).",
+                                "default": 30
+                            }
+                        },
+                        "required": ["server", "tool"]
+                    }
+                }
+            }),
+            serde_json::json!({
+                "type": "function",
+                "function": {
+                    "name": "search_memories",
+                    "description": "Search AMS memories for relevant context before/after MCP calls.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "query": {
+                                "type": "string",
+                                "description": "Search query to find relevant memories"
+                            },
+                            "limit": {
+                                "type": "integer",
+                                "description": "Max results to return (default 5)",
+                                "default": 5
+                            }
+                        },
+                        "required": ["query"]
+                    }
+                }
+            }),
+            Self::create_memory_tool_definition(),
+            Self::get_task_board_tool_definition(),
         ]
     }
 
