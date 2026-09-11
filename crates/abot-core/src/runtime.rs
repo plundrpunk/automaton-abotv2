@@ -97,6 +97,82 @@ fn truncate_chars(value: &str, max_chars: usize) -> &str {
     }
 }
 
+/// Upper bound on a single `poll_worker_execution` wait, so one fan-in
+/// call cannot eat a whole turn.
+const MAX_POLL_WAIT_SECS: u64 = 600;
+
+/// Observatory statuses that mean the execution row will not change again.
+///
+/// `error` and `timeout` are terminal on the AMS side (see
+/// `dlpfc_service._dispatch_monitor_loop`), so a poller that only watches
+/// for `completed | failed | killed` sits on a dead row until its own
+/// deadline expires.
+fn is_terminal_exec_status(status: &str) -> bool {
+    matches!(
+        status,
+        "completed" | "failed" | "killed" | "error" | "timeout"
+    )
+}
+
+/// Shape a terminal observatory row into a `dispatch_to_worker` /
+/// `poll_worker_execution` result.
+fn terminal_worker_result(
+    worker: Option<&str>,
+    exec_id: &str,
+    status: &str,
+    exec: &serde_json::Value,
+) -> serde_json::Value {
+    serde_json::json!({
+        "ok": status == "completed",
+        "dispatched_to": worker,
+        "execution_id": exec_id,
+        "status": status,
+        "terminal": true,
+        "output": exec.get("output").cloned().unwrap_or(serde_json::Value::Null),
+        "duration_ms": exec.get("duration_ms"),
+    })
+}
+
+/// Shape a non-terminal observatory row.
+///
+/// A wait that runs out is NOT a failed dispatch: the worker keeps running
+/// and its output lands on the same execution row. Return whatever partial
+/// output exists plus the exact call that fans the result in on a later
+/// turn, so the caller can honour "re-check on your next turn" instead of
+/// re-dispatching work that is already in flight.
+fn pending_worker_result(
+    worker: Option<&str>,
+    exec_id: &str,
+    observed_status: &str,
+    waited_secs: u64,
+    exec: Option<&serde_json::Value>,
+) -> serde_json::Value {
+    let partial = exec
+        .and_then(|e| e.get("output"))
+        .and_then(|v| v.as_str())
+        .map(summarize_rollup_text);
+
+    serde_json::json!({
+        "ok": false,
+        "dispatched_to": worker,
+        "execution_id": exec_id,
+        "status": "still_running",
+        "terminal": false,
+        "observed_status": observed_status,
+        "waited_secs": waited_secs,
+        "partial_output": partial,
+        "note": concat!(
+            "Wait window elapsed; the worker is still running and its full ",
+            "output will land on this execution row. This is not a failure ",
+            "and not a lost result - do not re-dispatch this task.",
+        ),
+        "resume_with": {
+            "tool": "poll_worker_execution",
+            "arguments": { "execution_id": exec_id },
+        },
+    })
+}
+
 fn summarize_rollup_text(value: &str) -> String {
     let truncated = truncate_chars(value, 500);
 
@@ -1033,15 +1109,18 @@ impl Runtime {
                     std::time::Instant::now() + std::time::Duration::from_secs(timeout_secs);
                 let poll_interval = std::time::Duration::from_secs(2);
 
+                let mut last_exec: Option<serde_json::Value> = None;
+                let mut last_status = "unknown".to_string();
+
                 loop {
                     if std::time::Instant::now() > deadline {
-                        return serde_json::json!({
-                            "ok": false,
-                            "dispatched_to": worker,
-                            "execution_id": exec_id,
-                            "status": "timeout",
-                            "timeout_secs": timeout_secs,
-                        })
+                        return pending_worker_result(
+                            Some(worker),
+                            &exec_id,
+                            &last_status,
+                            timeout_secs,
+                            last_exec.as_ref(),
+                        )
                         .to_string();
                     }
                     match self.ams.get_execution(&exec_id).await {
@@ -1049,28 +1128,104 @@ impl Runtime {
                             let status = exec
                                 .get("status")
                                 .and_then(|v| v.as_str())
-                                .unwrap_or("unknown");
-                            if matches!(status, "completed" | "failed" | "killed") {
-                                let output = exec
-                                    .get("output")
-                                    .cloned()
-                                    .unwrap_or(serde_json::Value::Null);
-                                return serde_json::json!({
-                                    "ok": status == "completed",
-                                    "dispatched_to": worker,
-                                    "execution_id": exec_id,
-                                    "status": status,
-                                    "output": output,
-                                    "duration_ms": exec.get("duration_ms"),
-                                })
+                                .unwrap_or("unknown")
+                                .to_string();
+                            if is_terminal_exec_status(&status) {
+                                return terminal_worker_result(
+                                    Some(worker),
+                                    &exec_id,
+                                    &status,
+                                    &exec,
+                                )
                                 .to_string();
                             }
+                            last_status = status;
+                            last_exec = Some(exec);
                         }
                         Err(e) => {
                             // 404s are expected for the first few polls
                             // while the background spawn writes the row.
                             tracing::debug!(exec_id = %exec_id, err = %e, "get_execution transient");
                         }
+                    }
+                    tokio::time::sleep(poll_interval).await;
+                }
+            }
+            "poll_worker_execution" => {
+                // Fan in on a worker execution dispatched on an earlier
+                // turn. Without this, "re-check on your next turn" (which
+                // the TL system prompts promise) is impossible: the only
+                // dispatch tool starts new work, so a timed-out wait meant
+                // re-running a task that was already in flight.
+                let exec_id = args
+                    .get("execution_id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                if exec_id.is_empty() {
+                    return serde_json::json!({"error": "execution_id is required"}).to_string();
+                }
+                let wait_secs = args
+                    .get("wait_secs")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0)
+                    .min(MAX_POLL_WAIT_SECS);
+
+                let deadline =
+                    std::time::Instant::now() + std::time::Duration::from_secs(wait_secs);
+                let poll_interval = std::time::Duration::from_secs(2);
+                let mut last_exec: Option<serde_json::Value> = None;
+                let mut last_status = "unknown".to_string();
+                let mut last_error: Option<String> = None;
+
+                loop {
+                    match self.ams.get_execution(exec_id).await {
+                        Ok(exec) => {
+                            let status = exec
+                                .get("status")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("unknown")
+                                .to_string();
+                            if is_terminal_exec_status(&status) {
+                                return terminal_worker_result(None, exec_id, &status, &exec)
+                                    .to_string();
+                            }
+                            last_status = status;
+                            last_exec = Some(exec);
+                        }
+                        Err(e) => {
+                            last_error = Some(e.to_string());
+                            tracing::debug!(exec_id = %exec_id, err = %e, "poll_worker_execution transient");
+                        }
+                    }
+
+                    if std::time::Instant::now() >= deadline {
+                        // Never seen at all: say so rather than implying
+                        // work is in flight that may not exist.
+                        if last_exec.is_none() {
+                            return serde_json::json!({
+                                "ok": false,
+                                "execution_id": exec_id,
+                                "status": "unknown",
+                                "terminal": false,
+                                "error": last_error.unwrap_or_else(|| {
+                                    "execution row not found".to_string()
+                                }),
+                                "note": concat!(
+                                    "No observatory row for this execution id. ",
+                                    "Check the id before assuming the work is ",
+                                    "still running.",
+                                ),
+                            })
+                            .to_string();
+                        }
+                        return pending_worker_result(
+                            None,
+                            exec_id,
+                            &last_status,
+                            wait_secs,
+                            last_exec.as_ref(),
+                        )
+                        .to_string();
                     }
                     tokio::time::sleep(poll_interval).await;
                 }
@@ -1340,9 +1495,36 @@ impl Runtime {
                             "task": {
                                 "type": "string",
                                 "description": "Detailed task description for the worker. Include context, requirements, and expected deliverables."
+                            },
+                            "timeout_secs": {
+                                "type": "integer",
+                                "description": "How long to wait for the worker before returning status 'still_running' (default 180 - too short for real work). Pass 900 for anything involving a shell, a repo, or tests. Running out of time is not a failure: fan the result in later with poll_worker_execution.",
+                                "default": 180
                             }
                         },
                         "required": ["worker_name", "task"]
+                    }
+                }
+            }),
+            serde_json::json!({
+                "type": "function",
+                "function": {
+                    "name": "poll_worker_execution",
+                    "description": "Fan in on a worker execution you dispatched earlier (including on a previous turn) by its execution_id. Returns the terminal status and full output once the worker finishes, or status 'still_running' with partial output. Use this instead of re-dispatching a task whose wait window ran out.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "execution_id": {
+                                "type": "string",
+                                "description": "The execution_id returned by dispatch_to_worker (e.g. spawn-ab12cd34ef56)."
+                            },
+                            "wait_secs": {
+                                "type": "integer",
+                                "description": "Optionally keep polling up to this many seconds (max 600) before giving up. Default 0 = check once and return.",
+                                "default": 0
+                            }
+                        },
+                        "required": ["execution_id"]
                     }
                 }
             }),
@@ -1609,7 +1791,10 @@ impl Runtime {
 
 #[cfg(test)]
 mod tests {
-    use super::{summarize_rollup_text, truncate_chars};
+    use super::{
+        is_terminal_exec_status, pending_worker_result, summarize_rollup_text,
+        terminal_worker_result, truncate_chars,
+    };
 
     #[test]
     fn truncate_chars_respects_utf8_boundaries() {
@@ -1648,5 +1833,66 @@ mod tests {
         let value = "short summary";
 
         assert_eq!(summarize_rollup_text(value), value);
+    }
+
+    #[test]
+    fn error_and_timeout_rows_are_terminal() {
+        // AMS writes these two on the worker side; treating them as
+        // non-terminal made the poller wait out its whole deadline on a
+        // row that was never going to change again.
+        for status in ["completed", "failed", "killed", "error", "timeout"] {
+            assert!(
+                is_terminal_exec_status(status),
+                "{status} should be terminal"
+            );
+        }
+        for status in ["queued", "running", "bridged", "unknown"] {
+            assert!(
+                !is_terminal_exec_status(status),
+                "{status} should not be terminal"
+            );
+        }
+    }
+
+    #[test]
+    fn terminal_result_is_ok_only_when_completed() {
+        let exec = serde_json::json!({"output": "done", "duration_ms": 1200});
+        let completed = terminal_worker_result(Some("coder"), "spawn-1", "completed", &exec);
+        assert_eq!(completed["ok"], true);
+        assert_eq!(completed["output"], "done");
+        assert_eq!(completed["terminal"], true);
+
+        let failed = terminal_worker_result(Some("coder"), "spawn-1", "error", &exec);
+        assert_eq!(failed["ok"], false);
+        assert_eq!(failed["status"], "error");
+        assert_eq!(failed["terminal"], true);
+    }
+
+    #[test]
+    fn pending_result_carries_partial_output_and_resume_call() {
+        let exec = serde_json::json!({"status": "running", "output": "half a report"});
+        let pending = pending_worker_result(Some("coder"), "spawn-9", "running", 900, Some(&exec));
+
+        assert_eq!(pending["status"], "still_running");
+        assert_eq!(pending["terminal"], false);
+        assert_eq!(pending["observed_status"], "running");
+        assert_eq!(pending["partial_output"], "half a report");
+        assert_eq!(pending["resume_with"]["tool"], "poll_worker_execution");
+        assert_eq!(
+            pending["resume_with"]["arguments"]["execution_id"],
+            "spawn-9"
+        );
+    }
+
+    #[test]
+    fn pending_result_without_a_row_has_no_partial_output() {
+        let pending = pending_worker_result(None, "spawn-9", "unknown", 180, None);
+
+        assert_eq!(pending["status"], "still_running");
+        assert!(pending["partial_output"].is_null());
+        assert_eq!(
+            pending["resume_with"]["arguments"]["execution_id"],
+            "spawn-9"
+        );
     }
 }
