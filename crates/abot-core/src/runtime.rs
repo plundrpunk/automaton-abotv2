@@ -1675,6 +1675,42 @@ impl Runtime {
                     Err(e) => serde_json::json!({"error": e.to_string()}).to_string(),
                 }
             }
+            "complete_task" => {
+                // Board closure. Until this existed a TL could only *say*
+                // a CAP task was done; the tasks row stayed CLAIMED until
+                // the 4h claim TTL expired and the next standup re-claimed
+                // and re-ran it (bug d1c8be7c).
+                let task_id = args
+                    .get("task_id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .trim();
+                let summary = args
+                    .get("summary")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .trim();
+                if task_id.is_empty() || summary.is_empty() {
+                    return serde_json::json!({"error": "task_id and summary are required"})
+                        .to_string();
+                }
+                if Uuid::parse_str(task_id).is_err() {
+                    return serde_json::json!({
+                        "error": "task_id must be the CAP task UUID from the [BOARD] line"
+                    })
+                    .to_string();
+                }
+                let result = complete_task_result(
+                    summary,
+                    caller_agent_id,
+                    caller_exec_id,
+                    args.get("worker_execution_ids"),
+                );
+                match self.ams.complete_task(task_id, &result).await {
+                    Ok(resp) => resp.to_string(),
+                    Err(e) => serde_json::json!({"error": e.to_string()}).to_string(),
+                }
+            }
             "get_task_board" => match self.ams.get_task_board().await {
                 Ok(board) => task_board_summary(&board).to_string(),
                 Err(e) => serde_json::json!({"error": e.to_string()}).to_string(),
@@ -1814,6 +1850,35 @@ impl Runtime {
         })
     }
 
+    fn complete_task_tool_definition() -> serde_json::Value {
+        serde_json::json!({
+            "type": "function",
+            "function": {
+                "name": "complete_task",
+                "description": "Close out the CAP board task this dispatch claimed for you (the task_id in its [BOARD] line). Call it exactly once, only after the work is actually finished and every worker result has been fanned in. Never call it while a worker is still_running or the task is blocked; the board stays CLAIMED until you do, so a finished task you never close will be re-dispatched tomorrow.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "task_id": {
+                            "type": "string",
+                            "description": "CAP task UUID from the [BOARD] line of the dispatch."
+                        },
+                        "summary": {
+                            "type": "string",
+                            "description": "What was delivered, with receipts: commits, files, memory ids, and the worker execution ids that produced the result."
+                        },
+                        "worker_execution_ids": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Execution ids (spawn-*) of the workers whose output this completion rests on."
+                        }
+                    },
+                    "required": ["task_id", "summary"]
+                }
+            }
+        })
+    }
+
     fn tl_tool_definitions(specialists: &[serde_json::Value]) -> Vec<serde_json::Value> {
         let specialist_names: Vec<String> = specialists
             .iter()
@@ -1942,6 +2007,7 @@ impl Runtime {
             }),
             Self::create_memory_tool_definition(),
             Self::get_task_board_tool_definition(),
+            Self::complete_task_tool_definition(),
             serde_json::json!({
                 "type": "function",
                 "function": {
@@ -2258,11 +2324,38 @@ impl Runtime {
     }
 }
 
+/// Result payload stored on the CAP task row when a TL closes it.
+fn complete_task_result(
+    summary: &str,
+    completed_by: &str,
+    execution_id: Option<&str>,
+    worker_execution_ids: Option<&serde_json::Value>,
+) -> serde_json::Value {
+    let workers: Vec<String> = worker_execution_ids
+        .and_then(|v| v.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|v| v.as_str())
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
+    serde_json::json!({
+        "summary": summary,
+        "completed_by": completed_by,
+        "execution_id": execution_id,
+        "worker_execution_ids": workers,
+        "completed_at": Utc::now().to_rfc3339(),
+        "source": "abot.complete_task",
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        is_terminal_exec_status, pending_worker_result, summarize_rollup_text,
-        terminal_worker_result, truncate_chars,
+        Runtime, complete_task_result, is_terminal_exec_status, pending_worker_result,
+        summarize_rollup_text, terminal_worker_result, truncate_chars,
     };
 
     #[test]
@@ -2363,5 +2456,30 @@ mod tests {
             pending["resume_with"]["arguments"]["execution_id"],
             "spawn-9"
         );
+    }
+    #[test]
+    fn tl_toolset_exposes_complete_task() {
+        let names: Vec<String> = Runtime::tl_tool_definitions(&[])
+            .iter()
+            .filter_map(|t| t["function"]["name"].as_str().map(str::to_string))
+            .collect();
+
+        assert!(names.iter().any(|n| n == "complete_task"));
+        assert!(names.iter().any(|n| n == "poll_worker_execution"));
+    }
+
+    #[test]
+    fn complete_task_result_carries_receipts() {
+        let workers = serde_json::json!(["spawn-1", 7, "spawn-2"]);
+        let result = complete_task_result("done", "tl-engineering", Some("exec-9"), Some(&workers));
+
+        assert_eq!(result["summary"], "done");
+        assert_eq!(result["completed_by"], "tl-engineering");
+        assert_eq!(result["execution_id"], "exec-9");
+        assert_eq!(
+            result["worker_execution_ids"],
+            serde_json::json!(["spawn-1", "spawn-2"])
+        );
+        assert_eq!(result["source"], "abot.complete_task");
     }
 }

@@ -404,6 +404,26 @@ impl AmsClient {
         Ok(resp)
     }
 
+    /// Mark a CAP board task complete. Same endpoint the board UI uses, so
+    /// the task leaves the CLAIMED column the moment a TL declares the work
+    /// done. `result` is stored on the task row as its result payload.
+    pub async fn complete_task(
+        &self,
+        task_id: &str,
+        result: &serde_json::Value,
+    ) -> Result<serde_json::Value> {
+        let url = format!("{}/api/v1/cap/tasks/{}/complete", self.base_url, task_id);
+        let resp = self
+            .request(Method::POST, url)
+            .json(result)
+            .send()
+            .await?
+            .error_for_status()?
+            .json::<serde_json::Value>()
+            .await?;
+        Ok(resp)
+    }
+
     /// Fleet heartbeat — populates the in-memory container_heartbeats +
     /// fleet_registered_agents maps in `app/api/fleet.py`. This is what
     /// surfaces agents on `/api/fleet/status`.
