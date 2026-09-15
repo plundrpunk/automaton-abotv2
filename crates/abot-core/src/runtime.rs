@@ -1039,6 +1039,41 @@ impl Runtime {
             }
         }
 
+        // Iteration budget exhausted while the model was still calling
+        // tools: nothing was ever written, so the execution would be marked
+        // completed with an empty output_buffer (fleet evening briefs
+        // 2026-09-07..14 burned all 12 turns on search_memories). One last
+        // tool-less turn forces a wrap-up from whatever it already has.
+        if final_text.is_empty() {
+            warn!(
+                agent_id = %state.agent_id,
+                max_iterations = max_iterations,
+                "Tool loop exhausted without a final answer; forcing wrap-up turn"
+            );
+            messages.push(serde_json::json!({
+                "role": "user",
+                "content": "Tool budget exhausted. Do not call any more tools. Write your final answer now from what you already have, and say plainly what you could not verify.",
+            }));
+            match self
+                .ams
+                .complete_with_tools(&ToolCompletionRequest {
+                    messages: &messages,
+                    tools: &[],
+                    max_tokens: 4000,
+                    model: Some(requested_model),
+                    temperature: Some(0.3),
+                })
+                .await
+            {
+                Ok(r) => {
+                    total_in_tokens += r.input_tokens;
+                    total_out_tokens += r.output_tokens;
+                    final_text = r.text;
+                }
+                Err(e) => warn!(error = %e, "Wrap-up turn failed"),
+            }
+        }
+
         state.token_count = state
             .token_count
             .saturating_add(total_in_tokens + total_out_tokens);
