@@ -164,4 +164,4 @@ See [`.env.example`](.env.example) for the full list. The critical ones:
 
 MIT — see [LICENSE](LICENSE).
 
-Built by Drew Rutledge ([@plundrpunk](https://github.com/plundrpunk)). Part of the [Automaton](https://github.com/plundrpunk) ecosystem.
+Built by Dead Reckoning Foundry ([@plundrpunk](https://github.com/plundrpunk)). Part of the [Automaton](https://github.com/plundrpunk) ecosystem.
